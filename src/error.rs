@@ -9,8 +9,14 @@ use serde::Serialize;
 pub enum ApiError {
     #[error("bad request: {0}")]
     BadRequest(String),
-    #[error("not implemented yet: {0}")]
-    NotImplemented(String),
+    #[error("unauthorized")]
+    Unauthorized,
+    #[error("conflict: {0}")]
+    Conflict(String),
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
+    #[error("internal server error")]
+    Internal,
 }
 
 #[derive(Serialize)]
@@ -22,7 +28,10 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = match self {
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            ApiError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ApiError::Conflict(_) => StatusCode::CONFLICT,
+            ApiError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            ApiError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         let body = Json(ErrorBody {
@@ -30,5 +39,12 @@ impl IntoResponse for ApiError {
         });
 
         (status, body).into_response()
+    }
+}
+
+impl From<sqlx::Error> for ApiError {
+    fn from(error: sqlx::Error) -> Self {
+        tracing::error!(?error, "database operation failed");
+        ApiError::Internal
     }
 }

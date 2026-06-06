@@ -1,12 +1,8 @@
-use axum::{
-    http::{header, HeaderValue, Method},
-    routing::get,
-    Json, Router,
-};
+use axum::{routing::get, Json, Router};
 use serde::Serialize;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
-use crate::{config::AppConfig, state::AppState};
+use crate::state::AppState;
 
 #[derive(Serialize)]
 struct RootResponse {
@@ -16,10 +12,9 @@ struct RootResponse {
     backend: &'static str,
     database: &'static str,
     storage: &'static str,
-    auth: &'static str,
 }
 
-pub fn router(config: &AppConfig) -> Router<AppState> {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(root))
         .nest("/health", crate::health::router())
@@ -32,29 +27,17 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         .nest("/v1/community", crate::community::router())
         .nest("/v1/hub", crate::hub::router())
         .nest("/v1/social", crate::social::router())
-        .layer(cors_layer(config))
+        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
 }
 
 async fn root() -> Json<RootResponse> {
     Json(RootResponse {
         service: "Karyra Spark API",
-        phase: "auth-backend-foundation",
+        phase: "backend-foundation",
         frontend: "SvelteKit",
         backend: "Rust/Axum",
         database: "PostgreSQL + SQLx",
         storage: "S3-compatible self-hosted storage: MinIO/Garage first",
-        auth: "httpOnly cookie session foundation",
     })
-}
-
-fn cors_layer(config: &AppConfig) -> CorsLayer {
-    let origin = HeaderValue::from_str(&config.web_origin)
-        .unwrap_or_else(|_| HeaderValue::from_static("http://127.0.0.1:5173"));
-
-    CorsLayer::new()
-        .allow_origin(origin)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE])
-        .allow_credentials(true)
 }

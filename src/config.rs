@@ -6,34 +6,73 @@ pub struct AppConfig {
     pub port: u16,
     pub web_origin: String,
     pub database_url: String,
+    pub database_max_connections: u32,
     pub s3_endpoint: String,
     pub s3_bucket_public: String,
     pub s3_bucket_private: String,
+    pub session_cookie_name: String,
+    pub session_ttl_days: i64,
+    pub cookie_secure: bool,
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
+        let app_env = env_or("APP_ENV", "development");
+        let cookie_secure_default = app_env == "production";
+
         Self {
-            host: env::var("SPARK_API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
-            port: env::var("SPARK_API_PORT")
-                .ok()
-                .and_then(|value| value.parse().ok())
+            host: env_first(&["SPARK_API_HOST", "APP_HOST"], "127.0.0.1"),
+            port: env_first(&["SPARK_API_PORT", "APP_PORT"], "8787")
+                .parse()
                 .unwrap_or(8787),
-            web_origin: env::var("SPARK_WEB_ORIGIN")
-                .unwrap_or_else(|_| "http://127.0.0.1:5173".to_string()),
-            database_url: env::var("DATABASE_URL").unwrap_or_else(|_| {
-                "postgres://spark:spark_dev_password@127.0.0.1:5432/spark".to_string()
-            }),
-            s3_endpoint: env::var("S3_ENDPOINT")
-                .unwrap_or_else(|_| "http://127.0.0.1:9000".to_string()),
-            s3_bucket_public: env::var("S3_BUCKET_PUBLIC")
-                .unwrap_or_else(|_| "spark-public".to_string()),
-            s3_bucket_private: env::var("S3_BUCKET_PRIVATE")
-                .unwrap_or_else(|_| "spark-private".to_string()),
+            web_origin: env_first(
+                &["SPARK_WEB_ORIGIN", "WEB_ORIGIN"],
+                "http://127.0.0.1:5173",
+            ),
+            database_url: env_or(
+                "DATABASE_URL",
+                "postgres://spark:spark_dev_password@127.0.0.1:5432/spark",
+            ),
+            database_max_connections: env_or("DATABASE_MAX_CONNECTIONS", "5")
+                .parse()
+                .unwrap_or(5),
+            s3_endpoint: env_or("S3_ENDPOINT", "http://127.0.0.1:9000"),
+            s3_bucket_public: env_or("S3_BUCKET_PUBLIC", "spark-public"),
+            s3_bucket_private: env_or("S3_BUCKET_PRIVATE", "spark-private"),
+            session_cookie_name: env_or("SPARK_SESSION_COOKIE", "spark_session"),
+            session_ttl_days: env_or("SPARK_SESSION_TTL_DAYS", "14")
+                .parse()
+                .unwrap_or(14),
+            cookie_secure: env::var("SPARK_COOKIE_SECURE")
+                .ok()
+                .and_then(|value| parse_bool(&value))
+                .unwrap_or(cookie_secure_default),
         }
     }
 
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+}
+
+fn env_or(key: &str, default: &str) -> String {
+    env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn env_first(keys: &[&str], default: &str) -> String {
+    for key in keys {
+        if let Ok(value) = env::var(key) {
+            return value;
+        }
+    }
+
+    default.to_string()
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "y" | "on" => Some(true),
+        "0" | "false" | "no" | "n" | "off" => Some(false),
+        _ => None,
     }
 }

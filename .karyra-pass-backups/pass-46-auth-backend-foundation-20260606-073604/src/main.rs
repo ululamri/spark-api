@@ -33,8 +33,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env();
     let bind_addr = config.bind_addr();
-    let state = AppState::new(config).context("failed to initialize Spark API state")?;
-    let app = http::router(&state.config).with_state(state);
+    let state = AppState::new(config);
+    let app = http::router().with_state(state);
     let listener = TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("failed to bind Spark API on {bind_addr}"))?;
