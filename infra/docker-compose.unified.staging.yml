@@ -1,0 +1,124 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: spark-caddy
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SPARK_DOMAIN: ${SPARK_DOMAIN:-spark.localhost}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - spark_caddy_data:/data
+      - spark_caddy_config:/config
+    depends_on:
+      spark-web:
+        condition: service_started
+      spark-api:
+        condition: service_started
+    networks:
+      - spark_net
+
+  spark-web:
+    build:
+      context: ${SPARK_WEB_CONTEXT:-../../spark}
+      dockerfile: Dockerfile.staging
+    container_name: spark-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PUBLIC_API_BASE: ""
+      PUBLIC_SPARK_API_BASE: ""
+    expose:
+      - "4173"
+    depends_on:
+      spark-api:
+        condition: service_started
+    networks:
+      - spark_net
+
+  spark-api:
+    build:
+      context: ${SPARK_API_CONTEXT:-..}
+      dockerfile: Dockerfile
+    container_name: spark-api
+    restart: unless-stopped
+    env_file:
+      - ${SPARK_RUNTIME_ENV_FILE:-../config/env.unified.staging.example}
+    expose:
+      - "8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - spark_net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: spark-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-spark}
+      POSTGRES_USER: ${POSTGRES_USER:-spark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spark_change_me}
+    volumes:
+      - spark_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spark} -d ${POSTGRES_DB:-spark}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - spark_net
+
+  minio:
+    image: minio/minio:latest
+    container_name: spark-minio
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-spark_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-spark_minio_change_me}
+    volumes:
+      - spark_minio_data:/data
+    expose:
+      - "9000"
+      - "9001"
+    networks:
+      - spark_net
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: spark-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-spark_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-spark_minio_change_me}
+      S3_BUCKET_PUBLIC: ${S3_BUCKET_PUBLIC:-spark-public}
+      S3_BUCKET_PRIVATE: ${S3_BUCKET_PRIVATE:-spark-private}
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set spark-minio http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      mc mb --ignore-existing spark-minio/$$S3_BUCKET_PUBLIC;
+      mc mb --ignore-existing spark-minio/$$S3_BUCKET_PRIVATE;
+      echo 'MinIO buckets ready';
+      "
+    networks:
+      - spark_net
+    restart: "no"
+
+networks:
+  spark_net:
+    name: spark_unified_net
+
+volumes:
+  spark_postgres_data:
+  spark_minio_data:
+  spark_caddy_data:
+  spark_caddy_config:

@@ -1,0 +1,20 @@
+{
+	# Staging-friendly defaults. Caddy will obtain HTTPS certificates automatically
+	# when SPARK_DOMAIN points to this server and ports 80/443 are reachable.
+	email {$CADDY_ACME_EMAIL:admin@example.com}
+}
+
+{$SPARK_DOMAIN} {
+	encode zstd gzip
+
+	@api path /v1/* /health/*
+	reverse_proxy @api spark-api:8787
+
+	reverse_proxy spark-web:4173
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
