@@ -1,0 +1,26 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust fmt
+        run: rustup component add rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Cargo check
+        run: cargo check
+
+      - name: Cargo build
+        run: cargo build
