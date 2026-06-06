@@ -1,0 +1,21 @@
+# Rust
+/target/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Local data / storage
+/tmp/
+/uploads/
+/media/
+/storage/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
