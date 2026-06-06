@@ -17,7 +17,6 @@ struct RootResponse {
     database: &'static str,
     storage: &'static str,
     auth: &'static str,
-    progress: &'static str,
 }
 
 pub fn router(config: &AppConfig) -> Router<AppState> {
@@ -40,13 +39,12 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
 async fn root() -> Json<RootResponse> {
     Json(RootResponse {
         service: "Karyra Spark API",
-        phase: "learning-lab-progress-api",
+        phase: "auth-backend-foundation",
         frontend: "SvelteKit",
         backend: "Rust/Axum",
         database: "PostgreSQL + SQLx",
         storage: "S3-compatible self-hosted storage: MinIO/Garage first",
         auth: "httpOnly cookie session foundation",
-        progress: "authenticated Core/Learn and Lab progress records",
     })
 }
 

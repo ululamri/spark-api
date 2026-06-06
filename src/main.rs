@@ -10,6 +10,7 @@ mod learning;
 mod media;
 mod passport;
 mod proof;
+mod progress;
 mod social;
 mod state;
 
