@@ -24,8 +24,14 @@ services:
     build:
       context: ${SPARK_WEB_CONTEXT:-../../spark}
       dockerfile: Dockerfile.staging
+      args:
+        PUBLIC_API_BASE: ${PUBLIC_API_BASE:-}
+        PUBLIC_SPARK_API_BASE: ${PUBLIC_SPARK_API_BASE:-}
+        ORIGIN: ${SPARK_PUBLIC_ORIGIN:-}
     container_name: spark-web
     restart: unless-stopped
+    env_file:
+      - ${SPARK_WEB_RUNTIME_ENV_FILE:-../../spark/.env.unified.staging}
     environment:
       NODE_ENV: production
       PUBLIC_API_BASE: ""
