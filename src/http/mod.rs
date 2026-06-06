@@ -45,7 +45,7 @@ async fn root() -> Json<RootResponse> {
         backend: "Rust/Axum",
         database: "PostgreSQL + SQLx",
         storage: "S3-compatible self-hosted storage: MinIO/Garage first",
-        auth: "httpOnly cookie session foundation",
+        auth: "httpOnly cookie session + system proof ledger",
         progress: "authenticated Core/Learn and Lab progress records",
     })
 }

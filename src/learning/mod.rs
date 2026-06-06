@@ -6,7 +6,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ use crate::{
         clean_required_id, normalize_level, normalize_progress_status, passed_from_score,
         payload_or_empty, progress_percent, validate_score,
     },
+    proof::ledger::{record_system_event, SystemProofEventInput},
     state::AppState,
 };
 
@@ -148,7 +149,7 @@ pub fn router() -> Router<AppState> {
 async fn scope() -> Json<ScopeResponse> {
     Json(ScopeResponse {
         module: module_path!(),
-        phase: "learning-progress-api",
+        phase: "learning-progress-api+proof-ledger",
         implemented_now: vec![
             "authenticated-lesson-progress",
             "checkpoint-result-recording",
@@ -156,7 +157,7 @@ async fn scope() -> Json<ScopeResponse> {
             "system-proof-source-foundation",
         ],
         next_backend_steps: vec![
-            "proof-event-ledger-emission",
+            "passport-eligibility-aggregation",
             "eligibility-aggregation",
             "frontend-session-hydration",
             "level-completion-policy",
@@ -228,6 +229,31 @@ async fn upsert_lesson_progress(
     .fetch_one(&state.db)
     .await?;
 
+    if row.status == "completed" {
+        let _proof_event = record_system_event(
+            &state,
+            SystemProofEventInput {
+                user_id: user.id,
+                event_type: "proof_of_learning_lesson_completed".to_string(),
+                subject_type: "lesson".to_string(),
+                subject_id: row.lesson_id.clone(),
+                level: Some(row.level.clone()),
+                track: Some("core".to_string()),
+                source_table: "lesson_progress".to_string(),
+                source_id: row.id,
+                payload: json!({
+                    "lesson_id": row.lesson_id.clone(),
+                    "level": row.level.clone(),
+                    "status": row.status.clone(),
+                    "progress_percent": row.progress_percent,
+                    "completed_at": row.completed_at.clone(),
+                    "source": "learning.lesson_progress"
+                }),
+            },
+        )
+        .await?;
+    }
+
     Ok((StatusCode::OK, Json(LessonProgressResponse::from(row))))
 }
 
@@ -262,6 +288,30 @@ async fn record_checkpoint_result(
     .bind(passed)
     .bind(payload)
     .fetch_one(&state.db)
+    .await?;
+
+    let _proof_event = record_system_event(
+        &state,
+        SystemProofEventInput {
+            user_id: user.id,
+            event_type: "core_checkpoint_result_recorded".to_string(),
+            subject_type: "checkpoint".to_string(),
+            subject_id: row.checkpoint_id.clone(),
+            level: Some(row.level.clone()),
+            track: Some(row.track.clone()),
+            source_table: "checkpoint_results".to_string(),
+            source_id: row.id,
+            payload: json!({
+                "track": row.track.clone(),
+                "subject_id": row.subject_id.clone(),
+                "checkpoint_id": row.checkpoint_id.clone(),
+                "level": row.level.clone(),
+                "score": row.score,
+                "passed": row.passed,
+                "source": "learning.checkpoint_results"
+            }),
+        },
+    )
     .await?;
 
     Ok((StatusCode::CREATED, Json(CheckpointResultResponse::from(row))))
@@ -327,6 +377,31 @@ async fn record_exam_attempt(
     .bind(exam_version)
     .bind(payload)
     .fetch_one(&state.db)
+    .await?;
+
+    let _proof_event = record_system_event(
+        state,
+        SystemProofEventInput {
+            user_id: user.id,
+            event_type: "core_level_exam_attempt_recorded".to_string(),
+            subject_type: "level_exam".to_string(),
+            subject_id: row.exam_id.clone(),
+            level: Some(row.level.clone()),
+            track: Some(row.track.clone()),
+            source_table: "exam_attempts".to_string(),
+            source_id: row.id,
+            payload: json!({
+                "track": row.track.clone(),
+                "level": row.level.clone(),
+                "exam_id": row.exam_id.clone(),
+                "score": row.score,
+                "passed": row.passed,
+                "attempt_number": row.attempt_number,
+                "exam_version": row.exam_version.clone(),
+                "source": "learning.exam_attempts"
+            }),
+        },
+    )
     .await?;
 
     Ok((StatusCode::CREATED, Json(ExamAttemptResponse::from(row))))

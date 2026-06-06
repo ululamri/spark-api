@@ -6,7 +6,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ use crate::{
         clean_required_id, is_final_attempt_status, normalize_attempt_status, normalize_level,
         passed_from_score, payload_or_empty, validate_optional_score, validate_score,
     },
+    proof::ledger::{record_system_event, SystemProofEventInput},
     state::AppState,
 };
 
@@ -153,7 +154,7 @@ pub fn router() -> Router<AppState> {
 async fn scope() -> Json<ScopeResponse> {
     Json(ScopeResponse {
         module: module_path!(),
-        phase: "lab-progress-api",
+        phase: "lab-progress-api+proof-ledger",
         implemented_now: vec![
             "authenticated-lab-attempts",
             "proof-of-practice-recording",
@@ -161,7 +162,7 @@ async fn scope() -> Json<ScopeResponse> {
             "lab-level-exam-attempt-recording",
         ],
         next_backend_steps: vec![
-            "proof-event-ledger-emission",
+            "passport-eligibility-aggregation",
             "lab-simulation-policy",
             "safety-checklist-versioning",
             "dojo-provable-lab-roadmap",
@@ -230,6 +231,53 @@ async fn create_lab_attempt(
     .fetch_one(&state.db)
     .await?;
 
+    let _proof_event = record_system_event(
+        &state,
+        SystemProofEventInput {
+            user_id: user.id,
+            event_type: "proof_of_practice_lab_attempt_recorded".to_string(),
+            subject_type: "lab".to_string(),
+            subject_id: row.lab_id.clone(),
+            level: Some(row.level.clone()),
+            track: Some("lab".to_string()),
+            source_table: "lab_attempts".to_string(),
+            source_id: row.id,
+            payload: json!({
+                "lab_id": row.lab_id.clone(),
+                "level": row.level.clone(),
+                "status": row.status.clone(),
+                "score": row.score,
+                "safety_score": row.safety_score,
+                "completed_at": row.completed_at.clone(),
+                "source": "lab.lab_attempts"
+            }),
+        },
+    )
+    .await?;
+
+    if row.safety_score.is_some() {
+        let _proof_event = record_system_event(
+            &state,
+            SystemProofEventInput {
+                user_id: user.id,
+                event_type: "proof_of_safety_score_recorded".to_string(),
+                subject_type: "lab_safety".to_string(),
+                subject_id: row.lab_id.clone(),
+                level: Some(row.level.clone()),
+                track: Some("lab".to_string()),
+                source_table: "lab_attempts".to_string(),
+                source_id: row.id,
+                payload: json!({
+                    "lab_id": row.lab_id.clone(),
+                    "level": row.level.clone(),
+                    "safety_score": row.safety_score,
+                    "source": "lab.lab_attempts.safety"
+                }),
+            },
+        )
+        .await?;
+    }
+
     Ok((StatusCode::CREATED, Json(LabAttemptResponse::from(row))))
 }
 
@@ -264,6 +312,30 @@ async fn record_lab_checkpoint_result(
     .bind(passed)
     .bind(payload)
     .fetch_one(&state.db)
+    .await?;
+
+    let _proof_event = record_system_event(
+        &state,
+        SystemProofEventInput {
+            user_id: user.id,
+            event_type: "lab_checkpoint_result_recorded".to_string(),
+            subject_type: "lab_checkpoint".to_string(),
+            subject_id: row.checkpoint_id.clone(),
+            level: Some(row.level.clone()),
+            track: Some(row.track.clone()),
+            source_table: "checkpoint_results".to_string(),
+            source_id: row.id,
+            payload: json!({
+                "track": row.track.clone(),
+                "subject_id": row.subject_id.clone(),
+                "checkpoint_id": row.checkpoint_id.clone(),
+                "level": row.level.clone(),
+                "score": row.score,
+                "passed": row.passed,
+                "source": "lab.checkpoint_results"
+            }),
+        },
+    )
     .await?;
 
     Ok((StatusCode::CREATED, Json(CheckpointResultResponse::from(row))))
@@ -318,6 +390,31 @@ async fn record_lab_exam_attempt(
     .bind(exam_version)
     .bind(payload)
     .fetch_one(&state.db)
+    .await?;
+
+    let _proof_event = record_system_event(
+        &state,
+        SystemProofEventInput {
+            user_id: user.id,
+            event_type: "lab_level_exam_attempt_recorded".to_string(),
+            subject_type: "lab_level_exam".to_string(),
+            subject_id: row.exam_id.clone(),
+            level: Some(row.level.clone()),
+            track: Some(row.track.clone()),
+            source_table: "exam_attempts".to_string(),
+            source_id: row.id,
+            payload: json!({
+                "track": row.track.clone(),
+                "level": row.level.clone(),
+                "exam_id": row.exam_id.clone(),
+                "score": row.score,
+                "passed": row.passed,
+                "attempt_number": row.attempt_number,
+                "exam_version": row.exam_version.clone(),
+                "source": "lab.exam_attempts"
+            }),
+        },
+    )
     .await?;
 
     Ok((StatusCode::CREATED, Json(ExamAttemptResponse::from(row))))
