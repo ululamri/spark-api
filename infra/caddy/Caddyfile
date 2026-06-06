@@ -1,10 +1,11 @@
 {
-	# Staging-friendly defaults. Caddy will obtain HTTPS certificates automatically
-	# when SPARK_DOMAIN points to this server and ports 80/443 are reachable.
-	email {$CADDY_ACME_EMAIL:admin@example.com}
+	# Provider-managed HTTPS mode.
+	# The hosting provider terminates public HTTPS before traffic reaches this server.
+	# Caddy serves HTTP internally and reverse-proxies to Spark services.
+	auto_https off
 }
 
-{$SPARK_DOMAIN} {
+http://{$SPARK_DOMAIN} {
 	encode zstd gzip
 
 	@api path /v1/* /health/*
