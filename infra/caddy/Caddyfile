@@ -24,6 +24,18 @@ http://{$SPARK_DOMAIN} {
 		redir /hub/ 308
 	}
 
+	# Hub is built with PUBLIC_HUB_BASE_PATH=/hub, so page routes must keep /hub.
+	# Static files are physically served from /_app and /favicon.svg inside the Hub container.
+	handle /hub/_app/* {
+		uri strip_prefix /hub
+		reverse_proxy spark-hub:4174
+	}
+
+	handle /hub/favicon.svg {
+		uri strip_prefix /hub
+		reverse_proxy spark-hub:4174
+	}
+
 	handle /hub/* {
 		reverse_proxy spark-hub:4174
 	}
