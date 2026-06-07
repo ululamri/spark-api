@@ -1,4 +1,3 @@
-\
 create table if not exists community_workshop_registrations (
   id uuid primary key,
   user_id uuid not null references users(id) on delete cascade,
