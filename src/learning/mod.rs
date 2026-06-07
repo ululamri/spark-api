@@ -138,9 +138,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/scope", get(scope))
         .route("/me/progress", get(list_my_lesson_progress))
-        .route("/lessons/{lesson_id}/progress", post(upsert_lesson_progress))
+        .route("/lessons/:lesson_id/progress", post(upsert_lesson_progress))
         .route(
-            "/checkpoints/{checkpoint_id}/results",
+            "/checkpoints/:checkpoint_id/results",
             post(record_checkpoint_result),
         )
         .route("/exam-attempts", post(record_core_exam_attempt))

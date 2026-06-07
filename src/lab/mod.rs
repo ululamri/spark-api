@@ -145,7 +145,7 @@ pub fn router() -> Router<AppState> {
         .route("/me/attempts", get(list_my_lab_attempts))
         .route("/attempts", post(create_lab_attempt))
         .route(
-            "/checkpoints/{checkpoint_id}/results",
+            "/checkpoints/:checkpoint_id/results",
             post(record_lab_checkpoint_result),
         )
         .route("/exam-attempts", post(record_lab_exam_attempt))
