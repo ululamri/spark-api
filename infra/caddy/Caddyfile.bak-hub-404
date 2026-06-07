@@ -8,29 +8,17 @@
 http://{$SPARK_DOMAIN} {
 	encode zstd gzip
 
-	handle /v1/* {
-		reverse_proxy spark-api:8787
-	}
+	@api path /v1/* /health/*
+	reverse_proxy @api spark-api:8787
 
-	handle /health/* {
-		reverse_proxy spark-api:8787
-	}
+	@hubRoot path /hub
+	redir @hubRoot /hub/ 308
 
-	handle /health {
-		reverse_proxy spark-api:8787
-	}
-
-	handle /hub {
-		redir /hub/ 308
-	}
-
-	handle /hub/* {
+	handle_path /hub/* {
 		reverse_proxy spark-hub:4174
 	}
 
-	handle {
-		reverse_proxy spark-web:4173
-	}
+	reverse_proxy spark-web:4173
 
 	header {
 		X-Content-Type-Options nosniff
