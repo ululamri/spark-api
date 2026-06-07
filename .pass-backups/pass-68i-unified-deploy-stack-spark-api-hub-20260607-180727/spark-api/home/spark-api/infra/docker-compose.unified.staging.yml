@@ -17,8 +17,6 @@ services:
         condition: service_started
       spark-api:
         condition: service_started
-      spark-hub:
-        condition: service_started
     networks:
       - spark_net
 
@@ -29,9 +27,6 @@ services:
       args:
         PUBLIC_API_BASE: ${PUBLIC_API_BASE:-}
         PUBLIC_SPARK_API_BASE: ${PUBLIC_SPARK_API_BASE:-}
-        PUBLIC_SPARK_HUB_URL: ${PUBLIC_SPARK_HUB_URL:-/hub/}
-        PUBLIC_SPARK_APP_URL: ${PUBLIC_SPARK_APP_URL:-}
-        PUBLIC_SPARK_MODE: ${PUBLIC_SPARK_MODE:-production}
         ORIGIN: ${SPARK_PUBLIC_ORIGIN:-}
     container_name: spark-web
     restart: unless-stopped
@@ -41,36 +36,11 @@ services:
       NODE_ENV: production
       PUBLIC_API_BASE: ""
       PUBLIC_SPARK_API_BASE: ""
-      PUBLIC_SPARK_HUB_URL: ${PUBLIC_SPARK_HUB_URL:-/hub/}
-      PUBLIC_SPARK_APP_URL: ${PUBLIC_SPARK_APP_URL:-}
-      PUBLIC_SPARK_MODE: ${PUBLIC_SPARK_MODE:-production}
     expose:
       - "4173"
     depends_on:
       spark-api:
         condition: service_started
-    networks:
-      - spark_net
-
-  spark-hub:
-    build:
-      context: ${SPARK_HUB_CONTEXT:-../../hub}
-      dockerfile: Dockerfile.staging
-      args:
-        PUBLIC_HUB_BASE_PATH: ${PUBLIC_HUB_BASE_PATH:-/hub}
-        PUBLIC_SPARK_APP_URL: ${PUBLIC_SPARK_APP_URL:-}
-        PUBLIC_SPARK_HUB_URL: ${PUBLIC_SPARK_HUB_URL:-/hub/}
-    container_name: spark-hub
-    restart: unless-stopped
-    env_file:
-      - ${SPARK_HUB_RUNTIME_ENV_FILE:-../../hub/.env.unified.staging}
-    environment:
-      NODE_ENV: production
-      PUBLIC_HUB_BASE_PATH: ${PUBLIC_HUB_BASE_PATH:-/hub}
-      PUBLIC_SPARK_APP_URL: ${PUBLIC_SPARK_APP_URL:-}
-      PUBLIC_SPARK_HUB_URL: ${PUBLIC_SPARK_HUB_URL:-/hub/}
-    expose:
-      - "4174"
     networks:
       - spark_net
 
