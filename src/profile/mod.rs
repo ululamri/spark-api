@@ -156,8 +156,8 @@ async fn update_me(
                   handle,
                   coalesce(bio, '') as bio,
                   coalesce(location, '') as location,
-                  coalesce(visibility, 'community') as visibility,
-                  coalesce(avatar_preset, 'spark') as avatar_preset,
+                  coalesce(visibility, $9) as visibility,
+                  coalesce(avatar_preset, $10) as avatar_preset,
                   avatar_url,
                   updated_at
         "#,
@@ -170,6 +170,8 @@ async fn update_me(
     .bind(visibility)
     .bind(avatar_preset)
     .bind(avatar_url)
+    .bind(DEFAULT_VISIBILITY)
+    .bind(DEFAULT_AVATAR_PRESET)
     .fetch_one(&state.db)
     .await?;
 
@@ -179,15 +181,19 @@ async fn update_me(
 async fn ensure_profile(state: &AppState, user_id: Uuid) -> Result<ProfileRow, ApiError> {
     sqlx::query(
         r#"
-        insert into profiles (user_id, display_name)
+        insert into profiles (user_id, display_name, visibility, avatar_preset)
         select id,
-               coalesce(nullif(split_part(email, '@', 1), ''), 'Pengguna Spark')
+               coalesce(nullif(split_part(email, '@', 1), ''), 'Pengguna Spark'),
+               $2,
+               $3
         from users
         where id = $1
         on conflict (user_id) do nothing
         "#,
     )
     .bind(user_id)
+    .bind(DEFAULT_VISIBILITY)
+    .bind(DEFAULT_AVATAR_PRESET)
     .execute(&state.db)
     .await?;
 
@@ -203,8 +209,8 @@ async fn fetch_profile(state: &AppState, user_id: Uuid) -> Result<ProfileRow, Ap
                profiles.handle,
                coalesce(profiles.bio, '') as bio,
                coalesce(profiles.location, '') as location,
-               coalesce(profiles.visibility, 'community') as visibility,
-               coalesce(profiles.avatar_preset, 'spark') as avatar_preset,
+               coalesce(profiles.visibility, $2) as visibility,
+               coalesce(profiles.avatar_preset, $3) as avatar_preset,
                profiles.avatar_url,
                coalesce(profiles.updated_at, users.created_at) as updated_at
         from users
@@ -213,6 +219,8 @@ async fn fetch_profile(state: &AppState, user_id: Uuid) -> Result<ProfileRow, Ap
         "#,
     )
     .bind(user_id)
+    .bind(DEFAULT_VISIBILITY)
+    .bind(DEFAULT_AVATAR_PRESET)
     .fetch_optional(&state.db)
     .await?
     .ok_or(ApiError::Unauthorized)?;

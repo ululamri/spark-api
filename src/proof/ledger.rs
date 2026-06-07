@@ -38,6 +38,7 @@ pub async fn record_system_event(
     validate_event_input(&input)?;
 
     if let Some(existing) = existing_event(state, &input).await? {
+        log_recorded_proof_event("proof_event_reused", &existing);
         return Ok(existing);
     }
 
@@ -84,7 +85,20 @@ pub async fn record_system_event(
     .fetch_one(&state.db)
     .await?;
 
+    log_recorded_proof_event("proof_event_recorded", &row);
+
     Ok(row)
+}
+
+fn log_recorded_proof_event(action: &str, event: &RecordedProofEvent) {
+    tracing::debug!(
+        action,
+        proof_event_id = %event.id,
+        event_hash = event.event_hash.as_deref().unwrap_or(""),
+        evidence_root = event.evidence_root.as_deref().unwrap_or(""),
+        created_at = %event.created_at,
+        "proof event ledger record"
+    );
 }
 
 async fn existing_event(
