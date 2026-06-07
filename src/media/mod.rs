@@ -141,9 +141,9 @@ pub fn router() -> Router<AppState> {
         .route("/policy", get(policy))
         .route("/me/assets", get(list_my_assets))
         .route("/upload-intents", post(create_upload_intent))
-        .route("/assets/{asset_id}", get(get_my_asset))
-        .route("/assets/{asset_id}/complete", post(complete_upload))
-        .route("/assets/{asset_id}/links", post(create_media_link))
+        .route("/assets/:asset_id", get(get_my_asset))
+        .route("/assets/:asset_id/complete", post(complete_upload))
+        .route("/assets/:asset_id/links", post(create_media_link))
 }
 
 async fn policy() -> Json<MediaPolicyResponse> {
