@@ -25,6 +25,7 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         .route("/", get(root))
         .nest("/health", crate::health::router())
         .nest("/v1/auth", crate::auth::router())
+        .nest("/v1/profile", crate::profile::router())
         .nest("/v1/learning", crate::learning::router())
         .nest("/v1/lab", crate::lab::router())
         .nest("/v1/media", crate::media::router())

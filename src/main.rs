@@ -11,6 +11,7 @@ mod media;
 mod passport;
 mod proof;
 mod progress;
+mod profile;
 mod social;
 mod state;
 
