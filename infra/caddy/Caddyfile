@@ -20,33 +20,39 @@ http://{$SPARK_DOMAIN} {
 		reverse_proxy spark-api:8787
 	}
 
-	handle /hub {
+		handle /hub {
+		header Cache-Control "no-store"
 		redir /hub/ 308
 	}
 
-	# Hub is built with PUBLIC_HUB_BASE_PATH=/hub, so page routes must keep /hub.
-	# Static files are physically served from /_app and /favicon.svg inside the Hub container.
+	# Hub is built with PUBLIC_HUB_BASE_PATH=/hub.
+	# Page routes keep /hub; static asset requests are mapped to the Hub container asset root.
+	handle /hub/_app/version.json {
+		header Cache-Control "no-store"
+		uri strip_prefix /hub
+		reverse_proxy spark-hub:4174
+	}
+
+	handle /hub/_app/immutable/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		uri strip_prefix /hub
+		reverse_proxy spark-hub:4174
+	}
+
 	handle /hub/_app/* {
+		header Cache-Control "public, max-age=3600"
 		uri strip_prefix /hub
 		reverse_proxy spark-hub:4174
 	}
 
 	handle /hub/favicon.svg {
+		header Cache-Control "public, max-age=3600"
 		uri strip_prefix /hub
 		reverse_proxy spark-hub:4174
 	}
 
 	handle /hub/* {
+		header Cache-Control "no-store"
 		reverse_proxy spark-hub:4174
-	}
-
-	handle {
-		reverse_proxy spark-web:4173
-	}
-
-	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		-Server
 	}
 }
