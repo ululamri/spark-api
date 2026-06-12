@@ -12,9 +12,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::{
-    auth::session::require_current_user,
-    error::ApiError,
-    progress::normalize_level,
+    auth::session::require_current_user, error::ApiError, progress::normalize_level,
     state::AppState,
 };
 
@@ -219,7 +217,9 @@ async fn issue_my_passport(
         .levels
         .iter()
         .find(|level| level.level == target_level)
-        .ok_or_else(|| ApiError::BadRequest("requested readiness level is not available".to_string()))?;
+        .ok_or_else(|| {
+            ApiError::BadRequest("requested readiness level is not available".to_string())
+        })?;
 
     if !level_state.eligible {
         return Err(ApiError::BadRequest(format!(
@@ -228,7 +228,9 @@ async fn issue_my_passport(
     }
 
     let evidence_root = eligibility.evidence_root.clone().ok_or_else(|| {
-        ApiError::BadRequest("Passport requires a backend evidence root before issuance".to_string())
+        ApiError::BadRequest(
+            "Passport requires a backend evidence root before issuance".to_string(),
+        )
     })?;
     let credential_hash = credential_hash(
         user.id,
@@ -306,7 +308,10 @@ async fn issue_my_passport(
     .fetch_one(&state.db)
     .await?;
 
-    Ok((StatusCode::CREATED, Json(PassportCredentialResponse::from(row))))
+    Ok((
+        StatusCode::CREATED,
+        Json(PassportCredentialResponse::from(row)),
+    ))
 }
 
 async fn revoke_my_passport(

@@ -105,7 +105,10 @@ async fn list_my_resources(
     .await?;
 
     Ok(Json(ListResponse {
-        items: rows.into_iter().map(HubResourceSaveResponse::from).collect(),
+        items: rows
+            .into_iter()
+            .map(HubResourceSaveResponse::from)
+            .collect(),
     }))
 }
 
@@ -162,7 +165,10 @@ async fn save_resource(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(HubResourceSaveResponse::from(row))))
+    Ok((
+        StatusCode::CREATED,
+        Json(HubResourceSaveResponse::from(row)),
+    ))
 }
 
 async fn unsave_resource(

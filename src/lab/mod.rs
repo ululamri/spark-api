@@ -338,7 +338,10 @@ async fn record_lab_checkpoint_result(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(CheckpointResultResponse::from(row))))
+    Ok((
+        StatusCode::CREATED,
+        Json(CheckpointResultResponse::from(row)),
+    ))
 }
 
 async fn record_lab_exam_attempt(

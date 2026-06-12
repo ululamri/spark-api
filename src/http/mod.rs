@@ -34,6 +34,7 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         .nest("/v1/community", crate::community::router())
         .nest("/v1/hub", crate::hub::router())
         .nest("/v1/social", crate::social::router())
+        .nest("/api/admin", crate::admin::router())
         .layer(cors_layer(config))
         .layer(TraceLayer::new_for_http())
 }
@@ -58,6 +59,9 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(origin)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-karyra-admin-token"),
+        ])
         .allow_credentials(true)
 }

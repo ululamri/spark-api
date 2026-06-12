@@ -1,9 +1,4 @@
-use axum::{
-    extract::State,
-    http::HeaderMap,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, http::HeaderMap, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -238,7 +233,9 @@ fn clean_text(input: &str, field: &str, min: usize, max: usize) -> Result<String
         return Err(ApiError::BadRequest(format!("{field} is too long")));
     }
     if value.chars().any(char::is_control) {
-        return Err(ApiError::BadRequest(format!("{field} cannot contain control characters")));
+        return Err(ApiError::BadRequest(format!(
+            "{field} cannot contain control characters"
+        )));
     }
     Ok(value.to_string())
 }
@@ -259,10 +256,9 @@ fn clean_optional_handle(input: &str) -> Result<Option<String>, ApiError> {
     if raw.chars().count() > 32 {
         return Err(ApiError::BadRequest("handle is too long".to_string()));
     }
-    if raw
-        .chars()
-        .any(|character| !(character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')))
-    {
+    if raw.chars().any(|character| {
+        !(character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+    }) {
         return Err(ApiError::BadRequest(
             "handle can only contain letters, numbers, dot, dash, and underscore".to_string(),
         ));

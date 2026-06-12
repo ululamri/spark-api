@@ -1,3 +1,4 @@
+mod admin;
 mod auth;
 mod community;
 mod config;
@@ -9,9 +10,9 @@ mod lab;
 mod learning;
 mod media;
 mod passport;
-mod proof;
-mod progress;
 mod profile;
+mod progress;
+mod proof;
 mod social;
 mod state;
 

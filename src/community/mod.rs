@@ -105,7 +105,10 @@ async fn list_my_workshops(
     .await?;
 
     Ok(Json(ListResponse {
-        items: rows.into_iter().map(WorkshopRegistrationResponse::from).collect(),
+        items: rows
+            .into_iter()
+            .map(WorkshopRegistrationResponse::from)
+            .collect(),
     }))
 }
 
@@ -162,7 +165,10 @@ async fn register_workshop(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(WorkshopRegistrationResponse::from(row))))
+    Ok((
+        StatusCode::CREATED,
+        Json(WorkshopRegistrationResponse::from(row)),
+    ))
 }
 
 async fn cancel_workshop(

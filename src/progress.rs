@@ -47,10 +47,7 @@ pub fn validate_optional_score(score: Option<i32>, field: &str) -> Result<Option
     score.map(|value| validate_score(value, field)).transpose()
 }
 
-pub fn normalize_progress_status(
-    input: Option<&str>,
-    completed: bool,
-) -> Result<String, ApiError> {
+pub fn normalize_progress_status(input: Option<&str>, completed: bool) -> Result<String, ApiError> {
     if completed {
         return Ok("completed".to_string());
     }

@@ -117,10 +117,12 @@ async fn register(
         sqlx::query_as("select id from users where lower(email) = lower($1)")
             .bind(&email)
             .fetch_optional(&state.db)
-        .await?;
+            .await?;
 
     if exists.is_some() {
-        return Err(ApiError::Conflict("email is already registered".to_string()));
+        return Err(ApiError::Conflict(
+            "email is already registered".to_string(),
+        ));
     }
 
     let password_hash = hash_password(&payload.password)?;
@@ -179,7 +181,10 @@ async fn login(
     .await?
     .ok_or(ApiError::Unauthorized)?;
 
-    let password_hash = user.password_hash.as_deref().ok_or(ApiError::Unauthorized)?;
+    let password_hash = user
+        .password_hash
+        .as_deref()
+        .ok_or(ApiError::Unauthorized)?;
     if !verify_password(password_hash, &payload.password) {
         return Err(ApiError::Unauthorized);
     }
@@ -310,7 +315,9 @@ fn normalize_email(input: &str) -> Result<String, ApiError> {
     if valid {
         Ok(email)
     } else {
-        Err(ApiError::BadRequest("a valid email is required".to_string()))
+        Err(ApiError::BadRequest(
+            "a valid email is required".to_string(),
+        ))
     }
 }
 

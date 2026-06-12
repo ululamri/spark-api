@@ -200,7 +200,11 @@ async fn upsert_lesson_progress(
     let completed = payload.completed.unwrap_or(false);
     let status = normalize_progress_status(payload.status.as_deref(), completed)?;
     let progress_percent = progress_percent(payload.progress_percent, status == "completed")?;
-    let completed_at = if status == "completed" { Some(Utc::now()) } else { None };
+    let completed_at = if status == "completed" {
+        Some(Utc::now())
+    } else {
+        None
+    };
     let payload = payload_or_empty(payload.payload);
 
     let row = sqlx::query_as::<_, LessonProgressRow>(
@@ -314,7 +318,10 @@ async fn record_checkpoint_result(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(CheckpointResultResponse::from(row))))
+    Ok((
+        StatusCode::CREATED,
+        Json(CheckpointResultResponse::from(row)),
+    ))
 }
 
 async fn record_core_exam_attempt(

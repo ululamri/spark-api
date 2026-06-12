@@ -2,7 +2,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use crate::config::AppConfig;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState {
     pub config: AppConfig,
     pub db: PgPool,

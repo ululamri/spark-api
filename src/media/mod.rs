@@ -469,7 +469,8 @@ fn validate_size_bytes(value: i64, field: &str) -> Result<i64, ApiError> {
 
 fn normalize_mime_type(input: &str) -> Result<String, ApiError> {
     let value = input.trim().to_ascii_lowercase();
-    let allowed = value.starts_with("image/") || value == "application/pdf" || value.starts_with("text/");
+    let allowed =
+        value.starts_with("image/") || value == "application/pdf" || value.starts_with("text/");
 
     if allowed && value.chars().count() <= 128 && !value.chars().any(char::is_control) {
         Ok(value)
