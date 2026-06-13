@@ -1,4 +1,5 @@
 mod admin;
+mod admin_social;
 mod auth;
 mod community;
 mod config;
