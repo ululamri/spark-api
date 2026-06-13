@@ -11,6 +11,10 @@ pub struct AppConfig {
     pub s3_endpoint: String,
     pub s3_bucket_public: String,
     pub s3_bucket_private: String,
+    pub s3_access_key: Option<String>,
+    pub s3_secret_key: Option<String>,
+    pub s3_region: String,
+    pub s3_presign_expires_seconds: i64,
     pub session_cookie_name: String,
     pub session_ttl_days: i64,
     pub cookie_secure: bool,
@@ -37,6 +41,12 @@ impl AppConfig {
             s3_endpoint: env_or("S3_ENDPOINT", "http://127.0.0.1:9000"),
             s3_bucket_public: env_or("S3_BUCKET_PUBLIC", "spark-public"),
             s3_bucket_private: env_or("S3_BUCKET_PRIVATE", "spark-private"),
+            s3_access_key: env_optional(&["S3_ACCESS_KEY", "MINIO_ROOT_USER", "MINIO_ACCESS_KEY"]),
+            s3_secret_key: env_optional(&["S3_SECRET_KEY", "MINIO_ROOT_PASSWORD", "MINIO_SECRET_KEY"]),
+            s3_region: env_or("S3_REGION", "us-east-1"),
+            s3_presign_expires_seconds: env_or("S3_PRESIGN_EXPIRES_SECONDS", "900")
+                .parse()
+                .unwrap_or(900),
             session_cookie_name: env_or("SPARK_SESSION_COOKIE", "spark_session"),
             session_ttl_days: env_or("SPARK_SESSION_TTL_DAYS", "14").parse().unwrap_or(14),
             cookie_secure: env::var("SPARK_COOKIE_SECURE")
@@ -66,6 +76,19 @@ fn env_first(keys: &[&str], default: &str) -> String {
     }
 
     default.to_string()
+}
+
+fn env_optional(keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Ok(value) = env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
