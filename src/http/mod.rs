@@ -58,7 +58,7 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
 
     CorsLayer::new()
         .allow_origin(origin)
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             header::CONTENT_TYPE,
             header::HeaderName::from_static("x-karyra-admin-token"),
