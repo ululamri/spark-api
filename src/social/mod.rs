@@ -21,35 +21,7 @@ struct ScopeResponse {
     module: &'static str,
     phase: &'static str,
     implemented_now: Vec<&'static str>,
-    api_contract: SocialApiContract,
-    database_contract: DatabaseContract,
     next_backend_steps: Vec<&'static str>,
-}
-
-#[derive(Serialize)]
-struct SocialApiContract {
-    feed: Vec<RouteContract>,
-    posts: Vec<RouteContract>,
-    comments: Vec<RouteContract>,
-    reactions: Vec<RouteContract>,
-    profiles: Vec<RouteContract>,
-    moderation: Vec<RouteContract>,
-}
-
-#[derive(Serialize)]
-struct DatabaseContract {
-    source_of_truth: &'static str,
-    core_tables: Vec<&'static str>,
-    media_join_strategy: &'static str,
-    privacy_rule: &'static str,
-}
-
-#[derive(Serialize)]
-struct RouteContract {
-    method: &'static str,
-    path: &'static str,
-    auth: &'static str,
-    purpose: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -245,10 +217,7 @@ pub fn router() -> Router<AppState> {
         .route("/posts/:post_id/hide", post(hide_post))
         .route("/posts/:post_id/comments", post(create_comment))
         .route("/posts/:post_id/reactions", post(upsert_post_reaction))
-        .route(
-            "/posts/:post_id/reactions/:kind",
-            delete(delete_post_reaction),
-        )
+        .route("/posts/:post_id/reactions/:kind", delete(delete_post_reaction))
         .route("/comments/:comment_id/reactions", post(upsert_comment_reaction))
         .route(
             "/comments/:comment_id/reactions/:kind",
@@ -277,116 +246,6 @@ async fn scope() -> Json<ScopeResponse> {
             "report-queue-write",
             "media-link-attachment-hydration",
         ],
-        api_contract: SocialApiContract {
-            feed: vec![RouteContract {
-                method: "GET",
-                path: "/v1/social/feed",
-                auth: "optional-session",
-                purpose: "List latest visible community posts with author profile, stats, viewer state, and media attachments.",
-            }],
-            posts: vec![
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/posts",
-                    auth: "required-session",
-                    purpose: "Create a published social post and attach uploaded media assets through media_links.",
-                },
-                RouteContract {
-                    method: "GET",
-                    path: "/v1/social/posts/:post_id",
-                    auth: "optional-session",
-                    purpose: "Read one visible post with comments, author profile, media attachments, stats, and viewer state.",
-                },
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/posts/:post_id/hide",
-                    auth: "required-session",
-                    purpose: "Hide a post for the current viewer without moderating or deleting it globally.",
-                },
-            ],
-            comments: vec![RouteContract {
-                method: "POST",
-                path: "/v1/social/posts/:post_id/comments",
-                auth: "required-session",
-                purpose: "Create a visible comment for a published post.",
-            }],
-            reactions: vec![
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/posts/:post_id/reactions",
-                    auth: "required-session",
-                    purpose: "Add the viewer reaction for a post.",
-                },
-                RouteContract {
-                    method: "DELETE",
-                    path: "/v1/social/posts/:post_id/reactions/:kind",
-                    auth: "required-session",
-                    purpose: "Remove the viewer reaction from a post.",
-                },
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/comments/:comment_id/reactions",
-                    auth: "required-session",
-                    purpose: "Add the viewer reaction for a comment.",
-                },
-                RouteContract {
-                    method: "DELETE",
-                    path: "/v1/social/comments/:comment_id/reactions/:kind",
-                    auth: "required-session",
-                    purpose: "Remove the viewer reaction from a comment.",
-                },
-            ],
-            profiles: vec![
-                RouteContract {
-                    method: "GET",
-                    path: "/v1/social/profiles/:user_id",
-                    auth: "optional-session",
-                    purpose: "Read a public/community-safe profile card for social authors without exposing email.",
-                },
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/profiles/:user_id/follow",
-                    auth: "required-session",
-                    purpose: "Follow a visible community profile.",
-                },
-                RouteContract {
-                    method: "DELETE",
-                    path: "/v1/social/profiles/:user_id/follow",
-                    auth: "required-session",
-                    purpose: "Unfollow a community profile.",
-                },
-            ],
-            moderation: vec![
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/posts/:post_id/report",
-                    auth: "required-session",
-                    purpose: "Report a post for admin moderation review.",
-                },
-                RouteContract {
-                    method: "POST",
-                    path: "/v1/social/comments/:comment_id/report",
-                    auth: "required-session",
-                    purpose: "Report a comment for admin moderation review.",
-                },
-            ],
-        },
-        database_contract: DatabaseContract {
-            source_of_truth: "migrations/0069_public_social_schema.sql",
-            core_tables: vec![
-                "social_posts",
-                "social_comments",
-                "social_reactions",
-                "social_follows",
-                "social_post_hides",
-                "social_reports",
-                "social_moderation_actions",
-                "media_links",
-                "profiles",
-            ],
-            media_join_strategy: "Social posts and comments use media_links with entity_type values such as social_post and social_comment. Media ownership remains in media_assets.",
-            privacy_rule: "Public social responses must never expose user email. Author identity comes from profiles only.",
-        },
         next_backend_steps: vec![
             "add admin moderation read/actions",
             "connect frontend social gateway to backend by default",
@@ -410,7 +269,13 @@ async fn feed(
         .map(normalize_post_kind)
         .transpose()?;
 
-    let rows = query_posts(&state, viewer_id, limit, cursor, kind.as_deref()).await?;
+    let rows = sqlx::query_as::<_, SocialPostRow>(POST_FEED_SQL)
+        .bind(limit)
+        .bind(viewer_id)
+        .bind(cursor)
+        .bind(kind.as_deref())
+        .fetch_all(&state.db)
+        .await?;
     let next_cursor = rows.last().map(|row| row.published_at.to_rfc3339());
     let mut items = Vec::with_capacity(rows.len());
 
@@ -428,7 +293,13 @@ async fn get_post(
 ) -> Result<Json<HydratedPostResponse>, ApiError> {
     let viewer = optional_current_user(&state, &headers).await?;
     let viewer_id = viewer.as_ref().map(|user| user.id);
-    let row = query_post_by_id(&state, viewer_id, post_id).await?;
+    let row = sqlx::query_as::<_, SocialPostRow>(POST_BY_ID_SQL)
+        .bind(post_id)
+        .bind(viewer_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("social post not found".to_string()))?;
+
     Ok(Json(hydrate_post(&state, viewer_id, row, true).await?))
 }
 
@@ -481,8 +352,16 @@ async fn create_post(
 
     attach_media_assets(&state, user.id, "social_post", post_id, media_asset_ids).await?;
 
-    let row = query_post_by_id(&state, Some(user.id), post_id).await?;
-    Ok((StatusCode::CREATED, Json(hydrate_post(&state, Some(user.id), row, true).await?)))
+    let row = sqlx::query_as::<_, SocialPostRow>(POST_BY_ID_SQL)
+        .bind(post_id)
+        .bind(Some(user.id))
+        .fetch_one(&state.db)
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(hydrate_post(&state, Some(user.id), row, true).await?),
+    ))
 }
 
 async fn create_comment(
@@ -533,8 +412,16 @@ async fn create_comment(
     )
     .await?;
 
-    let row = query_comment_by_id(&state, Some(user.id), comment_id).await?;
-    Ok((StatusCode::CREATED, Json(hydrate_comment(&state, Some(user.id), row).await?)))
+    let row = sqlx::query_as::<_, SocialCommentRow>(COMMENT_BY_ID_SQL)
+        .bind(comment_id)
+        .bind(Some(user.id))
+        .fetch_one(&state.db)
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(hydrate_comment(&state, Some(user.id), row).await?),
+    ))
 }
 
 async fn upsert_post_reaction(
@@ -551,8 +438,7 @@ async fn upsert_post_reaction(
         r#"
         insert into social_reactions (id, user_id, post_id, kind)
         values ($1, $2, $3, $4)
-        on conflict (user_id, post_id, kind) where post_id is not null do update set
-          updated_at = now()
+        on conflict (user_id, post_id, kind) where post_id is not null do update set updated_at = now()
         "#,
     )
     .bind(Uuid::new_v4())
@@ -573,14 +459,12 @@ async fn delete_post_reaction(
     let user = require_current_user(&state, &headers).await?;
     let kind = normalize_reaction_kind(&kind)?;
 
-    sqlx::query(
-        "delete from social_reactions where user_id = $1 and post_id = $2 and kind = $3",
-    )
-    .bind(user.id)
-    .bind(post_id)
-    .bind(kind)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("delete from social_reactions where user_id = $1 and post_id = $2 and kind = $3")
+        .bind(user.id)
+        .bind(post_id)
+        .bind(kind)
+        .execute(&state.db)
+        .await?;
 
     Ok(Json(ActionResponse { ok: true }))
 }
@@ -599,8 +483,7 @@ async fn upsert_comment_reaction(
         r#"
         insert into social_reactions (id, user_id, comment_id, kind)
         values ($1, $2, $3, $4)
-        on conflict (user_id, comment_id, kind) where comment_id is not null do update set
-          updated_at = now()
+        on conflict (user_id, comment_id, kind) where comment_id is not null do update set updated_at = now()
         "#,
     )
     .bind(Uuid::new_v4())
@@ -621,14 +504,12 @@ async fn delete_comment_reaction(
     let user = require_current_user(&state, &headers).await?;
     let kind = normalize_reaction_kind(&kind)?;
 
-    sqlx::query(
-        "delete from social_reactions where user_id = $1 and comment_id = $2 and kind = $3",
-    )
-    .bind(user.id)
-    .bind(comment_id)
-    .bind(kind)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("delete from social_reactions where user_id = $1 and comment_id = $2 and kind = $3")
+        .bind(user.id)
+        .bind(comment_id)
+        .bind(kind)
+        .execute(&state.db)
+        .await?;
 
     Ok(Json(ActionResponse { ok: true }))
 }
@@ -684,8 +565,7 @@ async fn get_social_profile(
     Path(user_id): Path<Uuid>,
     State(state): State<AppState>,
 ) -> Result<Json<SocialProfileResponse>, ApiError> {
-    let profile = visible_profile(&state, user_id).await?;
-    Ok(Json(profile))
+    Ok(Json(visible_profile(&state, user_id).await?))
 }
 
 async fn follow_profile(
@@ -705,8 +585,7 @@ async fn follow_profile(
         insert into social_follows (follower_user_id, followed_user_id, status)
         values ($1, $2, 'following')
         on conflict (follower_user_id, followed_user_id) do update set
-          status = 'following',
-          updated_at = now()
+          status = 'following', updated_at = now()
         "#,
     )
     .bind(user.id)
@@ -724,13 +603,11 @@ async fn unfollow_profile(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let user = require_current_user(&state, &headers).await?;
 
-    sqlx::query(
-        "delete from social_follows where follower_user_id = $1 and followed_user_id = $2",
-    )
-    .bind(user.id)
-    .bind(user_id)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("delete from social_follows where follower_user_id = $1 and followed_user_id = $2")
+        .bind(user.id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
 
     Ok(Json(ActionResponse { ok: true }))
 }
@@ -746,105 +623,6 @@ async fn optional_current_user(
     }
 }
 
-async fn query_posts(
-    state: &AppState,
-    viewer_id: Option<Uuid>,
-    limit: i64,
-    cursor: Option<DateTime<Utc>>,
-    kind: Option<&str>,
-) -> Result<Vec<SocialPostRow>, ApiError> {
-    let rows = sqlx::query_as::<_, SocialPostRow>(post_select_sql(
-        "where p.status = 'published'
-           and p.visibility in ('public', 'community')
-           and ($3::timestamptz is null or p.published_at < $3)
-           and ($4::text is null or p.kind = $4)
-           and not exists (
-             select 1 from social_post_hides sph
-             where sph.user_id = $2::uuid and sph.post_id = p.id
-           )
-         order by p.published_at desc, p.id desc
-         limit $1",
-    ))
-    .bind(limit)
-    .bind(viewer_id)
-    .bind(cursor)
-    .bind(kind)
-    .fetch_all(&state.db)
-    .await?;
-
-    Ok(rows)
-}
-
-async fn query_post_by_id(
-    state: &AppState,
-    viewer_id: Option<Uuid>,
-    post_id: Uuid,
-) -> Result<SocialPostRow, ApiError> {
-    let row = sqlx::query_as::<_, SocialPostRow>(post_select_sql(
-        "where p.id = $1
-           and p.status = 'published'
-           and p.visibility in ('public', 'community')",
-    ))
-    .bind(post_id)
-    .bind(viewer_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| ApiError::BadRequest("social post not found".to_string()))?;
-
-    Ok(row)
-}
-
-fn post_select_sql(where_clause: &'static str) -> String {
-    format!(
-        r#"
-        select p.id,
-               p.author_user_id,
-               p.kind,
-               p.body,
-               p.visibility,
-               p.status,
-               p.published_at,
-               p.created_at,
-               p.updated_at,
-               coalesce(nullif(pr.display_name, ''), 'Pengguna Spark') as author_display_name,
-               pr.handle as author_handle,
-               coalesce(pr.bio, '') as author_bio,
-               coalesce(pr.location, '') as author_location,
-               coalesce(pr.visibility, 'community') as author_visibility,
-               coalesce(pr.avatar_preset, 'spark') as author_avatar_preset,
-               pr.avatar_url as author_avatar_url,
-               (select count(*) from social_comments sc where sc.post_id = p.id and sc.status = 'published') as comments_count,
-               coalesce((
-                 select jsonb_object_agg(kind, total)
-                 from (
-                   select sr.kind, count(*)::bigint as total
-                   from social_reactions sr
-                   where sr.post_id = p.id
-                   group by sr.kind
-                 ) reaction_counts
-               ), '{{}}'::jsonb) as reactions,
-               coalesce((
-                 select jsonb_agg(sr.kind order by sr.kind)
-                 from social_reactions sr
-                 where sr.post_id = p.id and sr.user_id = $2::uuid
-               ), '[]'::jsonb) as viewer_reaction_kinds,
-               exists(
-                 select 1 from social_follows sf
-                 where sf.follower_user_id = $2::uuid
-                   and sf.followed_user_id = p.author_user_id
-                   and sf.status = 'following'
-               ) as viewer_is_following_author,
-               exists(
-                 select 1 from social_post_hides sph
-                 where sph.user_id = $2::uuid and sph.post_id = p.id
-               ) as viewer_is_hidden
-        from social_posts p
-        left join profiles pr on pr.user_id = p.author_user_id
-        {where_clause}
-        "#
-    )
-}
-
 async fn hydrate_post(
     state: &AppState,
     viewer_id: Option<Uuid>,
@@ -853,7 +631,11 @@ async fn hydrate_post(
 ) -> Result<HydratedPostResponse, ApiError> {
     let media = fetch_media_for_entity(state, "social_post", row.id, viewer_id).await?;
     let comments = if include_comments {
-        let rows = query_comments_for_post(state, viewer_id, row.id).await?;
+        let rows = sqlx::query_as::<_, SocialCommentRow>(COMMENTS_FOR_POST_SQL)
+            .bind(row.id)
+            .bind(viewer_id)
+            .fetch_all(&state.db)
+            .await?;
         let mut output = Vec::with_capacity(rows.len());
         for comment in rows {
             output.push(hydrate_comment(state, viewer_id, comment).await?);
@@ -898,81 +680,6 @@ async fn hydrate_post(
         },
         comments,
     })
-}
-
-async fn query_comments_for_post(
-    state: &AppState,
-    viewer_id: Option<Uuid>,
-    post_id: Uuid,
-) -> Result<Vec<SocialCommentRow>, ApiError> {
-    let rows = sqlx::query_as::<_, SocialCommentRow>(comment_select_sql(
-        "where c.post_id = $1 and c.status = 'published'
-         order by c.created_at asc, c.id asc
-         limit 100",
-    ))
-    .bind(post_id)
-    .bind(viewer_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    Ok(rows)
-}
-
-async fn query_comment_by_id(
-    state: &AppState,
-    viewer_id: Option<Uuid>,
-    comment_id: Uuid,
-) -> Result<SocialCommentRow, ApiError> {
-    let row = sqlx::query_as::<_, SocialCommentRow>(comment_select_sql(
-        "where c.id = $1 and c.status = 'published'",
-    ))
-    .bind(comment_id)
-    .bind(viewer_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| ApiError::BadRequest("social comment not found".to_string()))?;
-
-    Ok(row)
-}
-
-fn comment_select_sql(where_clause: &'static str) -> String {
-    format!(
-        r#"
-        select c.id,
-               c.post_id,
-               c.author_user_id,
-               c.parent_comment_id,
-               c.body,
-               c.status,
-               c.created_at,
-               c.updated_at,
-               coalesce(nullif(pr.display_name, ''), 'Pengguna Spark') as author_display_name,
-               pr.handle as author_handle,
-               coalesce(pr.bio, '') as author_bio,
-               coalesce(pr.location, '') as author_location,
-               coalesce(pr.visibility, 'community') as author_visibility,
-               coalesce(pr.avatar_preset, 'spark') as author_avatar_preset,
-               pr.avatar_url as author_avatar_url,
-               coalesce((
-                 select jsonb_object_agg(kind, total)
-                 from (
-                   select sr.kind, count(*)::bigint as total
-                   from social_reactions sr
-                   where sr.comment_id = c.id
-                   group by sr.kind
-                 ) reaction_counts
-               ), '{{}}'::jsonb) as reactions,
-               coalesce((
-                 select jsonb_agg(sr.kind order by sr.kind)
-                 from social_reactions sr
-                 where sr.comment_id = c.id and sr.user_id = $2::uuid
-               ), '[]'::jsonb) as viewer_reaction_kinds
-        from social_comments c
-        left join profiles pr on pr.user_id = c.author_user_id
-        join social_posts p on p.id = c.post_id and p.status = 'published'
-        {where_clause}
-        "#
-    )
 }
 
 async fn hydrate_comment(
@@ -1037,10 +744,7 @@ async fn fetch_media_for_entity(
         where ml.entity_type = $1
           and ml.entity_id = $2
           and ma.status = 'uploaded'
-          and (
-            ma.visibility = 'public'
-            or ma.owner_user_id = $3::uuid
-          )
+          and (ma.visibility = 'public' or ma.owner_user_id = $3::uuid)
         order by ml.created_at asc
         "#,
     )
@@ -1099,23 +803,17 @@ async fn create_report(
 ) -> Result<ReportResponse, ApiError> {
     let reason = normalize_report_reason(&payload.reason)?;
     let details = clean_optional_details(payload.details.as_deref())?;
-    let report_id = Uuid::new_v4();
 
     let row = sqlx::query_as::<_, ReportResponse>(
         r#"
-        insert into social_reports (
-          id, reporter_user_id, target_type, target_id, reason, details
-        )
+        insert into social_reports (id, reporter_user_id, target_type, target_id, reason, details)
         values ($1, $2, $3, $4, $5, $6)
-        on conflict (reporter_user_id, target_type, target_id, reason)
-          where status = 'pending'
-        do update set
-          details = excluded.details,
-          updated_at = now()
+        on conflict (reporter_user_id, target_type, target_id, reason) where status = 'pending'
+        do update set details = excluded.details, updated_at = now()
         returning id, target_type, target_id, reason, details, status, created_at, updated_at
         "#,
     )
-    .bind(report_id)
+    .bind(Uuid::new_v4())
     .bind(reporter_user_id)
     .bind(target_type)
     .bind(target_id)
@@ -1178,9 +876,7 @@ async fn ensure_visible_post_exists(state: &AppState, post_id: Uuid) -> Result<(
         r#"
         select exists(
           select 1 from social_posts
-          where id = $1
-            and status = 'published'
-            and visibility in ('public', 'community')
+          where id = $1 and status = 'published' and visibility in ('public', 'community')
         )
         "#,
     )
@@ -1322,3 +1018,182 @@ fn normalize_report_reason(input: &str) -> Result<String, ApiError> {
 fn json_array_has_items(value: &Value) -> bool {
     value.as_array().map(|items| !items.is_empty()).unwrap_or(false)
 }
+
+const POST_FEED_SQL: &str = r#"
+select p.id,
+       p.author_user_id,
+       p.kind,
+       p.body,
+       p.visibility,
+       p.status,
+       p.published_at,
+       p.created_at,
+       p.updated_at,
+       coalesce(nullif(pr.display_name, ''), 'Pengguna Spark') as author_display_name,
+       pr.handle as author_handle,
+       coalesce(pr.bio, '') as author_bio,
+       coalesce(pr.location, '') as author_location,
+       coalesce(pr.visibility, 'community') as author_visibility,
+       coalesce(pr.avatar_preset, 'spark') as author_avatar_preset,
+       pr.avatar_url as author_avatar_url,
+       (select count(*) from social_comments sc where sc.post_id = p.id and sc.status = 'published') as comments_count,
+       coalesce((
+         select jsonb_object_agg(kind, total)
+         from (
+           select sr.kind, count(*)::bigint as total
+           from social_reactions sr
+           where sr.post_id = p.id
+           group by sr.kind
+         ) reaction_counts
+       ), '{}'::jsonb) as reactions,
+       coalesce((
+         select jsonb_agg(sr.kind order by sr.kind)
+         from social_reactions sr
+         where sr.post_id = p.id and sr.user_id = $2::uuid
+       ), '[]'::jsonb) as viewer_reaction_kinds,
+       exists(
+         select 1 from social_follows sf
+         where sf.follower_user_id = $2::uuid
+           and sf.followed_user_id = p.author_user_id
+           and sf.status = 'following'
+       ) as viewer_is_following_author,
+       exists(
+         select 1 from social_post_hides sph
+         where sph.user_id = $2::uuid and sph.post_id = p.id
+       ) as viewer_is_hidden
+from social_posts p
+left join profiles pr on pr.user_id = p.author_user_id
+where p.status = 'published'
+  and p.visibility in ('public', 'community')
+  and ($3::timestamptz is null or p.published_at < $3)
+  and ($4::text is null or p.kind = $4)
+  and not exists (
+    select 1 from social_post_hides sph
+    where sph.user_id = $2::uuid and sph.post_id = p.id
+  )
+order by p.published_at desc, p.id desc
+limit $1
+"#;
+
+const POST_BY_ID_SQL: &str = r#"
+select p.id,
+       p.author_user_id,
+       p.kind,
+       p.body,
+       p.visibility,
+       p.status,
+       p.published_at,
+       p.created_at,
+       p.updated_at,
+       coalesce(nullif(pr.display_name, ''), 'Pengguna Spark') as author_display_name,
+       pr.handle as author_handle,
+       coalesce(pr.bio, '') as author_bio,
+       coalesce(pr.location, '') as author_location,
+       coalesce(pr.visibility, 'community') as author_visibility,
+       coalesce(pr.avatar_preset, 'spark') as author_avatar_preset,
+       pr.avatar_url as author_avatar_url,
+       (select count(*) from social_comments sc where sc.post_id = p.id and sc.status = 'published') as comments_count,
+       coalesce((
+         select jsonb_object_agg(kind, total)
+         from (
+           select sr.kind, count(*)::bigint as total
+           from social_reactions sr
+           where sr.post_id = p.id
+           group by sr.kind
+         ) reaction_counts
+       ), '{}'::jsonb) as reactions,
+       coalesce((
+         select jsonb_agg(sr.kind order by sr.kind)
+         from social_reactions sr
+         where sr.post_id = p.id and sr.user_id = $2::uuid
+       ), '[]'::jsonb) as viewer_reaction_kinds,
+       exists(
+         select 1 from social_follows sf
+         where sf.follower_user_id = $2::uuid
+           and sf.followed_user_id = p.author_user_id
+           and sf.status = 'following'
+       ) as viewer_is_following_author,
+       exists(
+         select 1 from social_post_hides sph
+         where sph.user_id = $2::uuid and sph.post_id = p.id
+       ) as viewer_is_hidden
+from social_posts p
+left join profiles pr on pr.user_id = p.author_user_id
+where p.id = $1
+  and p.status = 'published'
+  and p.visibility in ('public', 'community')
+"#;
+
+const COMMENTS_FOR_POST_SQL: &str = r#"
+select c.id,
+       c.post_id,
+       c.author_user_id,
+       c.parent_comment_id,
+       c.body,
+       c.status,
+       c.created_at,
+       c.updated_at,
+       coalesce(nullif(pr.display_name, ''), 'Pengguna Spark') as author_display_name,
+       pr.handle as author_handle,
+       coalesce(pr.bio, '') as author_bio,
+       coalesce(pr.location, '') as author_location,
+       coalesce(pr.visibility, 'community') as author_visibility,
+       coalesce(pr.avatar_preset, 'spark') as author_avatar_preset,
+       pr.avatar_url as author_avatar_url,
+       coalesce((
+         select jsonb_object_agg(kind, total)
+         from (
+           select sr.kind, count(*)::bigint as total
+           from social_reactions sr
+           where sr.comment_id = c.id
+           group by sr.kind
+         ) reaction_counts
+       ), '{}'::jsonb) as reactions,
+       coalesce((
+         select jsonb_agg(sr.kind order by sr.kind)
+         from social_reactions sr
+         where sr.comment_id = c.id and sr.user_id = $2::uuid
+       ), '[]'::jsonb) as viewer_reaction_kinds
+from social_comments c
+left join profiles pr on pr.user_id = c.author_user_id
+join social_posts p on p.id = c.post_id and p.status = 'published'
+where c.post_id = $1 and c.status = 'published'
+order by c.created_at asc, c.id asc
+limit 100
+"#;
+
+const COMMENT_BY_ID_SQL: &str = r#"
+select c.id,
+       c.post_id,
+       c.author_user_id,
+       c.parent_comment_id,
+       c.body,
+       c.status,
+       c.created_at,
+       c.updated_at,
+       coalesce(nullif(pr.display_name, ''), 'Pengguna Spark') as author_display_name,
+       pr.handle as author_handle,
+       coalesce(pr.bio, '') as author_bio,
+       coalesce(pr.location, '') as author_location,
+       coalesce(pr.visibility, 'community') as author_visibility,
+       coalesce(pr.avatar_preset, 'spark') as author_avatar_preset,
+       pr.avatar_url as author_avatar_url,
+       coalesce((
+         select jsonb_object_agg(kind, total)
+         from (
+           select sr.kind, count(*)::bigint as total
+           from social_reactions sr
+           where sr.comment_id = c.id
+           group by sr.kind
+         ) reaction_counts
+       ), '{}'::jsonb) as reactions,
+       coalesce((
+         select jsonb_agg(sr.kind order by sr.kind)
+         from social_reactions sr
+         where sr.comment_id = c.id and sr.user_id = $2::uuid
+       ), '[]'::jsonb) as viewer_reaction_kinds
+from social_comments c
+left join profiles pr on pr.user_id = c.author_user_id
+join social_posts p on p.id = c.post_id and p.status = 'published'
+where c.id = $1 and c.status = 'published'
+"#;
