@@ -1,4 +1,4 @@
-use axum::{extract::State, http::HeaderMap, routing::get, Json, Router};
+use axum::{extract::State, http::HeaderMap, routing::{get, post}, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -8,6 +8,7 @@ use crate::{auth::session::require_current_user, error::ApiError, state::AppStat
 
 const DEFAULT_VISIBILITY: &str = "community";
 const DEFAULT_AVATAR_PRESET: &str = "spark";
+const PUBLIC_MEDIA_BASE_PATH: &str = "/v1/media/public";
 
 #[derive(Serialize)]
 struct ProfileScopeResponse {
@@ -26,6 +27,11 @@ pub struct UpdateProfileRequest {
     pub visibility: Option<String>,
     pub avatar_preset: Option<String>,
     pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SetAvatarRequest {
+    media_asset_id: Uuid,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,6 +66,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/scope", get(scope))
         .route("/me", get(me).post(update_me))
+        .route("/me/avatar", post(set_avatar))
 }
 
 async fn scope() -> Json<ProfileScopeResponse> {
@@ -69,6 +76,7 @@ async fn scope() -> Json<ProfileScopeResponse> {
         implemented_now: vec![
             "authenticated-profile-read",
             "authenticated-profile-update",
+            "authenticated-profile-avatar-asset-link",
             "profile-is-separate-from-passport",
             "frontend-profile-backend-hydration",
         ],
@@ -123,6 +131,82 @@ async fn update_me(
         None => existing.avatar_url,
     };
 
+    let row = upsert_profile(
+        &state,
+        user.id,
+        display_name,
+        handle,
+        bio,
+        location,
+        visibility,
+        avatar_preset,
+        avatar_url,
+    )
+    .await?;
+
+    Ok(Json(ProfileResponse::from(row)))
+}
+
+async fn set_avatar(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<SetAvatarRequest>,
+) -> Result<Json<ProfileResponse>, ApiError> {
+    let user = require_current_user(&state, &headers).await?;
+    let existing = ensure_profile(&state, user.id).await?;
+
+    let exists = sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+          select 1
+          from media_assets
+          where id = $1
+            and owner_user_id = $2
+            and status = 'uploaded'
+            and visibility = 'public'
+            and mime_type like 'image/%'
+        )
+        "#,
+    )
+    .bind(payload.media_asset_id)
+    .bind(user.id)
+    .fetch_one(&state.db)
+    .await?;
+
+    if !exists {
+        return Err(ApiError::BadRequest(
+            "avatar media asset must be an uploaded public image owned by the current user".to_string(),
+        ));
+    }
+
+    let avatar_url = Some(format!("{PUBLIC_MEDIA_BASE_PATH}/{}", payload.media_asset_id));
+    let row = upsert_profile(
+        &state,
+        user.id,
+        existing.display_name,
+        existing.handle,
+        existing.bio,
+        existing.location,
+        existing.visibility,
+        existing.avatar_preset,
+        avatar_url,
+    )
+    .await?;
+
+    Ok(Json(ProfileResponse::from(row)))
+}
+
+async fn upsert_profile(
+    state: &AppState,
+    user_id: Uuid,
+    display_name: String,
+    handle: Option<String>,
+    bio: String,
+    location: String,
+    visibility: String,
+    avatar_preset: String,
+    avatar_url: Option<String>,
+) -> Result<ProfileRow, ApiError> {
     let row = sqlx::query_as::<_, ProfileRow>(
         r#"
         insert into profiles (
@@ -157,7 +241,7 @@ async fn update_me(
                   updated_at
         "#,
     )
-    .bind(user.id)
+    .bind(user_id)
     .bind(display_name)
     .bind(handle)
     .bind(bio)
@@ -170,7 +254,7 @@ async fn update_me(
     .fetch_one(&state.db)
     .await?;
 
-    Ok(Json(ProfileResponse::from(row)))
+    Ok(row)
 }
 
 async fn ensure_profile(state: &AppState, user_id: Uuid) -> Result<ProfileRow, ApiError> {
@@ -178,7 +262,7 @@ async fn ensure_profile(state: &AppState, user_id: Uuid) -> Result<ProfileRow, A
         r#"
         insert into profiles (user_id, display_name, visibility, avatar_preset)
         select id,
-               coalesce(nullif(split_part(email, '@', 1), ''), 'Pengguna Spark'),
+               'Pengguna Spark',
                $2,
                $3
         from users
@@ -200,7 +284,7 @@ async fn fetch_profile(state: &AppState, user_id: Uuid) -> Result<ProfileRow, Ap
         r#"
         select users.id as user_id,
                users.email,
-               coalesce(nullif(profiles.display_name, ''), split_part(users.email, '@', 1), 'Pengguna Spark') as display_name,
+               coalesce(nullif(profiles.display_name, ''), 'Pengguna Spark') as display_name,
                profiles.handle,
                coalesce(profiles.bio, '') as bio,
                coalesce(profiles.location, '') as location,
