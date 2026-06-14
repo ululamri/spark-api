@@ -1,10 +1,26 @@
 # Public Social Media Runtime
 
-**Pass:** PUBLIC-SOCIAL-05  
+**Pass:** PUBLIC-SOCIAL-05, updated by PUBLIC-SOCIAL-10/11  
 **Repository:** `spark-api`  
-**Scope:** Presigned MinIO/S3-compatible upload and public media delivery path for the public social layer.
+**Scope:** Presigned S3-compatible upload and public media delivery path for the public social layer.
 
-This pass upgrades the existing media intent foundation into a runtime that can be used by social feed posts without exposing raw bucket URLs in public feed payloads.
+This runtime lets social feed posts attach media without exposing raw bucket URLs in public feed payloads.
+
+## Current public beta storage
+
+The current public beta uses Cloudflare R2 through the S3-compatible API.
+
+```bash
+S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+S3_BUCKET_PUBLIC=spark-public
+S3_BUCKET_PRIVATE=spark-private
+S3_REGION=us-east-1
+S3_PRESIGN_EXPIRES_SECONDS=900
+S3_ACCESS_KEY=<r2-access-key-id>
+S3_SECRET_KEY=<r2-secret-access-key>
+```
+
+MinIO remains a future/self-hosted storage option, not the active public beta storage.
 
 ## Runtime routes
 
@@ -18,32 +34,9 @@ POST /v1/media/assets/:asset_id/complete
 POST /v1/media/assets/:asset_id/links
 ```
 
-## Environment
-
-```bash
-S3_ENDPOINT=http://127.0.0.1:9000
-S3_BUCKET_PUBLIC=spark-public
-S3_BUCKET_PRIVATE=spark-private
-S3_REGION=us-east-1
-S3_PRESIGN_EXPIRES_SECONDS=900
-S3_ACCESS_KEY=<minio-or-s3-access-key>
-S3_SECRET_KEY=<minio-or-s3-secret-key>
-```
-
-The runtime also accepts MinIO-compatible aliases:
-
-```bash
-MINIO_ROOT_USER=<access-key>
-MINIO_ROOT_PASSWORD=<secret-key>
-```
-
-If access and secret keys are configured, `POST /v1/media/upload-intents` returns a presigned `PUT` URL.
-
-If credentials are not configured, the API falls back to the direct path-style object URL. This is useful for older local/dev setups but is not the intended public beta path.
-
 ## Public media delivery
 
-Public media assets now store a relative public URL:
+Public media assets store a relative public URL:
 
 ```text
 /v1/media/public/:asset_id
@@ -56,7 +49,7 @@ status = uploaded
 visibility = public
 ```
 
-The endpoint returns a temporary redirect to a signed object URL when credentials are configured. This lets feed payloads expose Spark API URLs instead of raw bucket URLs.
+The endpoint returns a temporary redirect to a signed object URL when credentials are configured. This lets feed payloads expose Spark API URLs instead of raw R2 or MinIO bucket URLs.
 
 ## Upload flow
 
@@ -91,7 +84,7 @@ Response includes:
 }
 ```
 
-### 2. Upload file bytes to MinIO/S3
+### 2. Upload file bytes to R2/S3-compatible storage
 
 ```bash
 curl -X PUT \
@@ -100,7 +93,7 @@ curl -X PUT \
   "<upload_url>"
 ```
 
-For browser uploads, configure MinIO bucket CORS to allow the Spark web origin, `PUT`, and `content-type`.
+For browser uploads, configure the bucket CORS policy to allow the Spark web origin, `PUT`, and `content-type`.
 
 ### 3. Complete the asset
 
@@ -131,8 +124,9 @@ curl -s -X POST \
 
 ## Notes
 
-- No new database migration is required.
+- No new database migration is required for R2.
 - The runtime uses path-style S3-compatible URLs: `endpoint/bucket/object_key`.
 - The API does not make buckets public by itself.
-- Production public beta should keep MinIO credentials in `.env.host`, never in Git.
+- Keep R2 credentials in `.env.host`, never in Git and never in frontend environment variables.
 - Public social feed should use the `media[].public_url` value from API responses.
+- See `docs/CLOUDFLARE_R2_MEDIA_RUNTIME.md` for setup and `docs/PUBLIC_SOCIAL_MEDIA_E2E_VERIFICATION.md` for final verification.
