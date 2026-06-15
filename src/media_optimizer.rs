@@ -149,7 +149,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
 
 fn base64_url_no_pad(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut output = String::with_capacity((bytes.len() * 4).div_ceil(3));
+    let mut output = String::with_capacity((bytes.len() * 4 + 2) / 3);
     let mut index = 0;
 
     while index + 3 <= bytes.len() {
