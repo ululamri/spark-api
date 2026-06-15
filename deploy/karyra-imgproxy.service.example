@@ -1,0 +1,21 @@
+[Unit]
+Description=Karyra Spark imgproxy media optimizer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=imgproxy
+Group=imgproxy
+EnvironmentFile=/etc/karyra/imgproxy.env
+ExecStart=/usr/local/bin/imgproxy
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
