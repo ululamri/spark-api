@@ -1,7 +1,7 @@
 -- PASS CONTENT-POLICY-01 — Content policy and moderation foundation
 -- Adds policy taxonomy, moderation audit tables, AI/settings foundations,
--- user safety score/restriction primitives, and non-breaking moderation status
--- columns for social and media surfaces.
+-- user safety score/restriction primitives, rate-limit buckets, and non-breaking
+-- moderation status columns for social and media surfaces.
 
 alter table social_posts
   add column if not exists moderation_status text not null default 'allowed',
@@ -32,45 +32,27 @@ alter table media_assets
 
 alter table social_posts
   drop constraint if exists social_posts_moderation_status_check,
-  add constraint social_posts_moderation_status_check check (
-    moderation_status in ('unreviewed', 'allowed', 'pending_review', 'blocked', 'admin_hidden', 'admin_removed', 'restored')
-  ),
+  add constraint social_posts_moderation_status_check check (moderation_status in ('unreviewed', 'allowed', 'pending_review', 'blocked', 'admin_hidden', 'admin_removed', 'restored')),
   drop constraint if exists social_posts_moderation_decision_check,
-  add constraint social_posts_moderation_decision_check check (
-    moderation_decision is null or moderation_decision in ('allow', 'review', 'block', 'restrict')
-  ),
+  add constraint social_posts_moderation_decision_check check (moderation_decision is null or moderation_decision in ('allow', 'review', 'block', 'restrict')),
   drop constraint if exists social_posts_moderation_score_check,
-  add constraint social_posts_moderation_score_check check (
-    moderation_score is null or (moderation_score >= 0 and moderation_score <= 1)
-  );
+  add constraint social_posts_moderation_score_check check (moderation_score is null or (moderation_score >= 0 and moderation_score <= 1));
 
 alter table social_comments
   drop constraint if exists social_comments_moderation_status_check,
-  add constraint social_comments_moderation_status_check check (
-    moderation_status in ('unreviewed', 'allowed', 'pending_review', 'blocked', 'admin_hidden', 'admin_removed', 'restored')
-  ),
+  add constraint social_comments_moderation_status_check check (moderation_status in ('unreviewed', 'allowed', 'pending_review', 'blocked', 'admin_hidden', 'admin_removed', 'restored')),
   drop constraint if exists social_comments_moderation_decision_check,
-  add constraint social_comments_moderation_decision_check check (
-    moderation_decision is null or moderation_decision in ('allow', 'review', 'block', 'restrict')
-  ),
+  add constraint social_comments_moderation_decision_check check (moderation_decision is null or moderation_decision in ('allow', 'review', 'block', 'restrict')),
   drop constraint if exists social_comments_moderation_score_check,
-  add constraint social_comments_moderation_score_check check (
-    moderation_score is null or (moderation_score >= 0 and moderation_score <= 1)
-  );
+  add constraint social_comments_moderation_score_check check (moderation_score is null or (moderation_score >= 0 and moderation_score <= 1));
 
 alter table media_assets
   drop constraint if exists media_assets_moderation_status_check,
-  add constraint media_assets_moderation_status_check check (
-    moderation_status in ('unreviewed', 'allowed', 'pending_review', 'blocked', 'admin_hidden', 'admin_removed', 'restored')
-  ),
+  add constraint media_assets_moderation_status_check check (moderation_status in ('unreviewed', 'allowed', 'pending_review', 'blocked', 'admin_hidden', 'admin_removed', 'restored')),
   drop constraint if exists media_assets_moderation_decision_check,
-  add constraint media_assets_moderation_decision_check check (
-    moderation_decision is null or moderation_decision in ('allow', 'review', 'block', 'restrict')
-  ),
+  add constraint media_assets_moderation_decision_check check (moderation_decision is null or moderation_decision in ('allow', 'review', 'block', 'restrict')),
   drop constraint if exists media_assets_moderation_score_check,
-  add constraint media_assets_moderation_score_check check (
-    moderation_score is null or (moderation_score >= 0 and moderation_score <= 1)
-  );
+  add constraint media_assets_moderation_score_check check (moderation_score is null or (moderation_score >= 0 and moderation_score <= 1));
 
 create table if not exists content_policy_categories (
   key text primary key,
@@ -84,15 +66,9 @@ create table if not exists content_policy_categories (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint content_policy_categories_severity_check check (
-    severity in ('low', 'medium', 'high', 'critical')
-  ),
-  constraint content_policy_categories_decision_check check (
-    default_decision in ('allow', 'review', 'block', 'restrict')
-  ),
-  constraint content_policy_categories_strike_points_check check (
-    strike_points >= 0 and strike_points <= 20
-  )
+  constraint content_policy_categories_severity_check check (severity in ('low', 'medium', 'high', 'critical')),
+  constraint content_policy_categories_decision_check check (default_decision in ('allow', 'review', 'block', 'restrict')),
+  constraint content_policy_categories_strike_points_check check (strike_points >= 0 and strike_points <= 20)
 );
 
 create table if not exists content_policy_settings (
@@ -121,40 +97,18 @@ create table if not exists moderation_events (
   admin_summary text not null default '',
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  constraint moderation_events_target_type_check check (
-    target_type in ('post', 'comment', 'profile', 'media', 'avatar', 'report', 'user', 'assistant_message', 'system')
-  ),
-  constraint moderation_events_event_type_check check (
-    event_type in ('pre_publish_scan', 'post_publish_scan', 'media_scan', 'user_report', 'admin_action', 'restriction', 'rate_limit', 'ai_review', 'appeal')
-  ),
-  constraint moderation_events_decision_check check (
-    decision in ('allow', 'review', 'block', 'restrict')
-  ),
-  constraint moderation_events_severity_check check (
-    severity in ('low', 'medium', 'high', 'critical')
-  ),
-  constraint moderation_events_score_check check (
-    score is null or (score >= 0 and score <= 1)
-  ),
-  constraint moderation_events_source_check check (
-    source in ('rules', 'local_ai', 'external_api', 'admin', 'user_report', 'system', 'combined')
-  )
+  constraint moderation_events_target_type_check check (target_type in ('post', 'comment', 'profile', 'media', 'avatar', 'report', 'user', 'assistant_message', 'system')),
+  constraint moderation_events_event_type_check check (event_type in ('pre_publish_scan', 'post_publish_scan', 'media_scan', 'user_report', 'admin_action', 'restriction', 'rate_limit', 'ai_review', 'appeal')),
+  constraint moderation_events_decision_check check (decision in ('allow', 'review', 'block', 'restrict')),
+  constraint moderation_events_severity_check check (severity in ('low', 'medium', 'high', 'critical')),
+  constraint moderation_events_score_check check (score is null or (score >= 0 and score <= 1)),
+  constraint moderation_events_source_check check (source in ('rules', 'local_ai', 'external_api', 'admin', 'user_report', 'system', 'combined'))
 );
 
-create index if not exists moderation_events_target_idx
-  on moderation_events(target_type, target_id, created_at desc);
-
-create index if not exists moderation_events_actor_idx
-  on moderation_events(actor_user_id, created_at desc)
-  where actor_user_id is not null;
-
-create index if not exists moderation_events_owner_idx
-  on moderation_events(target_owner_user_id, created_at desc)
-  where target_owner_user_id is not null;
-
-create index if not exists moderation_events_queue_idx
-  on moderation_events(decision, severity, created_at asc)
-  where decision in ('review', 'block', 'restrict');
+create index if not exists moderation_events_target_idx on moderation_events(target_type, target_id, created_at desc);
+create index if not exists moderation_events_actor_idx on moderation_events(actor_user_id, created_at desc) where actor_user_id is not null;
+create index if not exists moderation_events_owner_idx on moderation_events(target_owner_user_id, created_at desc) where target_owner_user_id is not null;
+create index if not exists moderation_events_queue_idx on moderation_events(decision, severity, created_at asc) where decision in ('review', 'block', 'restrict');
 
 create table if not exists moderation_model_runs (
   id uuid primary key,
@@ -170,29 +124,15 @@ create table if not exists moderation_model_runs (
   completion_tokens integer,
   raw_response jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  constraint moderation_model_runs_input_type_check check (
-    input_type in ('text', 'image', 'multimodal', 'metadata')
-  ),
-  constraint moderation_model_runs_decision_check check (
-    decision in ('allow', 'review', 'block', 'restrict')
-  ),
-  constraint moderation_model_runs_score_check check (
-    score is null or (score >= 0 and score <= 1)
-  ),
-  constraint moderation_model_runs_latency_check check (
-    latency_ms is null or latency_ms >= 0
-  ),
-  constraint moderation_model_runs_tokens_check check (
-    (prompt_tokens is null or prompt_tokens >= 0)
-    and (completion_tokens is null or completion_tokens >= 0)
-  )
+  constraint moderation_model_runs_input_type_check check (input_type in ('text', 'image', 'multimodal', 'metadata')),
+  constraint moderation_model_runs_decision_check check (decision in ('allow', 'review', 'block', 'restrict')),
+  constraint moderation_model_runs_score_check check (score is null or (score >= 0 and score <= 1)),
+  constraint moderation_model_runs_latency_check check (latency_ms is null or latency_ms >= 0),
+  constraint moderation_model_runs_tokens_check check ((prompt_tokens is null or prompt_tokens >= 0) and (completion_tokens is null or completion_tokens >= 0))
 );
 
-create index if not exists moderation_model_runs_event_idx
-  on moderation_model_runs(moderation_event_id, created_at desc);
-
-create index if not exists moderation_model_runs_provider_idx
-  on moderation_model_runs(provider, model, created_at desc);
+create index if not exists moderation_model_runs_event_idx on moderation_model_runs(moderation_event_id, created_at desc);
+create index if not exists moderation_model_runs_provider_idx on moderation_model_runs(provider, model, created_at desc);
 
 create table if not exists user_safety_scores (
   user_id uuid primary key references users(id) on delete cascade,
@@ -205,15 +145,9 @@ create table if not exists user_safety_scores (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint user_safety_scores_points_check check (
-    active_points >= 0 and lifetime_points >= 0
-  ),
-  constraint user_safety_scores_level_check check (
-    safety_level in ('normal', 'gentle_friction', 'reduced_velocity', 'probation', 'temporary_restriction', 'admin_escalation')
-  ),
-  constraint user_safety_scores_restriction_level_check check (
-    restriction_level in ('none', 'gentle_friction', 'reduced_velocity', 'probation', 'temporary_restriction', 'hard_block')
-  )
+  constraint user_safety_scores_points_check check (active_points >= 0 and lifetime_points >= 0),
+  constraint user_safety_scores_level_check check (safety_level in ('normal', 'gentle_friction', 'reduced_velocity', 'probation', 'temporary_restriction', 'admin_escalation')),
+  constraint user_safety_scores_restriction_level_check check (restriction_level in ('none', 'gentle_friction', 'reduced_velocity', 'probation', 'temporary_restriction', 'hard_block'))
 );
 
 create table if not exists moderation_strikes (
@@ -229,18 +163,11 @@ create table if not exists moderation_strikes (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   constraint moderation_strikes_points_check check (points > 0 and points <= 20),
-  constraint moderation_strikes_source_check check (
-    source in ('rules', 'local_ai', 'external_api', 'admin', 'system', 'combined')
-  )
+  constraint moderation_strikes_source_check check (source in ('rules', 'local_ai', 'external_api', 'admin', 'system', 'combined'))
 );
 
-create index if not exists moderation_strikes_user_active_idx
-  on moderation_strikes(user_id, created_at desc)
-  where expires_at is null or expires_at > now();
-
-create index if not exists moderation_strikes_decay_idx
-  on moderation_strikes(decays_at asc)
-  where decays_at is not null;
+create index if not exists moderation_strikes_user_idx on moderation_strikes(user_id, expires_at, created_at desc);
+create index if not exists moderation_strikes_decay_idx on moderation_strikes(decays_at asc) where decays_at is not null;
 
 create table if not exists user_restrictions (
   id uuid primary key,
@@ -256,20 +183,12 @@ create table if not exists user_restrictions (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint user_restrictions_scope_check check (
-    scope in ('all', 'social_post_create', 'social_comment_create', 'social_reaction_create', 'social_report_create', 'media_upload', 'avatar_upload', 'profile_update', 'follow_user', 'ai_user_chat', 'admin_review')
-  ),
-  constraint user_restrictions_level_check check (
-    level in ('gentle_friction', 'reduced_velocity', 'probation', 'temporary_restriction', 'hard_block')
-  ),
-  constraint user_restrictions_time_check check (
-    expires_at is null or expires_at > starts_at
-  )
+  constraint user_restrictions_scope_check check (scope in ('all', 'social_post_create', 'social_comment_create', 'social_reaction_create', 'social_report_create', 'media_upload', 'avatar_upload', 'profile_update', 'follow_user', 'ai_user_chat', 'admin_review')),
+  constraint user_restrictions_level_check check (level in ('gentle_friction', 'reduced_velocity', 'probation', 'temporary_restriction', 'hard_block')),
+  constraint user_restrictions_time_check check (expires_at is null or expires_at > starts_at)
 );
 
-create index if not exists user_restrictions_user_active_idx
-  on user_restrictions(user_id, scope, level, expires_at)
-  where lifted_at is null;
+create index if not exists user_restrictions_user_active_idx on user_restrictions(user_id, scope, level, expires_at) where lifted_at is null;
 
 create table if not exists user_rate_limit_buckets (
   user_id uuid not null references users(id) on delete cascade,
@@ -283,16 +202,11 @@ create table if not exists user_rate_limit_buckets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (user_id, scope, window_start),
-  constraint user_rate_limit_buckets_scope_check check (
-    scope in ('social_post_create', 'social_comment_create', 'social_reaction_create', 'social_report_create', 'media_upload', 'avatar_upload', 'profile_update', 'follow_user', 'ai_user_chat', 'admin_ai_review')
-  ),
-  constraint user_rate_limit_buckets_counts_check check (
-    used_count >= 0 and limit_count >= 0 and window_seconds > 0
-  )
+  constraint user_rate_limit_buckets_scope_check check (scope in ('social_post_create', 'social_comment_create', 'social_reaction_create', 'social_report_create', 'media_upload', 'avatar_upload', 'profile_update', 'follow_user', 'ai_user_chat', 'admin_ai_review')),
+  constraint user_rate_limit_buckets_counts_check check (used_count >= 0 and limit_count >= 0 and window_seconds > 0)
 );
 
-create index if not exists user_rate_limit_buckets_reset_idx
-  on user_rate_limit_buckets(reset_at asc);
+create index if not exists user_rate_limit_buckets_reset_idx on user_rate_limit_buckets(reset_at asc);
 
 create table if not exists ai_provider_settings (
   provider text primary key,
@@ -306,12 +220,8 @@ create table if not exists ai_provider_settings (
   updated_by_user_id uuid references users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint ai_provider_settings_mode_check check (
-    mode in ('user_assistant', 'admin_only', 'moderation_only', 'disabled')
-  ),
-  constraint ai_provider_settings_timeout_check check (
-    timeout_ms between 1000 and 120000
-  )
+  constraint ai_provider_settings_mode_check check (mode in ('user_assistant', 'admin_only', 'moderation_only', 'disabled')),
+  constraint ai_provider_settings_timeout_check check (timeout_ms between 1000 and 120000)
 );
 
 create table if not exists ai_assistant_settings (
@@ -339,43 +249,34 @@ create table if not exists moderation_appeals (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint moderation_appeals_target_type_check check (
-    target_type in ('post', 'comment', 'profile', 'media', 'avatar', 'user')
-  ),
-  constraint moderation_appeals_status_check check (
-    status in ('pending', 'reviewed', 'accepted', 'rejected', 'cancelled')
-  ),
+  constraint moderation_appeals_target_type_check check (target_type in ('post', 'comment', 'profile', 'media', 'avatar', 'user')),
+  constraint moderation_appeals_status_check check (status in ('pending', 'reviewed', 'accepted', 'rejected', 'cancelled')),
   constraint moderation_appeals_message_length_check check (char_length(message) <= 2000),
   constraint moderation_appeals_resolution_length_check check (char_length(resolution) <= 2000)
 );
 
-create index if not exists moderation_appeals_queue_idx
-  on moderation_appeals(status, created_at asc);
+create index if not exists moderation_appeals_queue_idx on moderation_appeals(status, created_at asc);
+create index if not exists moderation_appeals_user_idx on moderation_appeals(user_id, created_at desc);
 
-create index if not exists moderation_appeals_user_idx
-  on moderation_appeals(user_id, created_at desc);
-
-insert into content_policy_categories (
-  key, label, severity, default_decision, strike_points, locked, description, public_guidance, metadata
-) values
-  ('sexual_minors', 'Sexual exploitation of minors', 'critical', 'block', 10, true, 'Sexual or exploitative content involving minors is not permitted.', 'This category is always blocked and escalated for safety review.', '{}'::jsonb),
-  ('nsfw_explicit', 'Explicit sexual content', 'high', 'block', 5, false, 'Explicit sexual images, nudity, or sexual solicitation are not allowed in the learning community.', 'Keep shared media safe for a public learning environment.', '{}'::jsonb),
-  ('gambling', 'Gambling and betting', 'high', 'block', 4, false, 'Casino, slot, betting, togel, and similar gambling promotion are not allowed.', 'Do not use Karyra Spark to promote gambling or betting.', '{}'::jsonb),
-  ('trading_solicitation', 'Trading solicitation', 'high', 'review', 3, false, 'Trading signals, profit guarantees, pump groups, exchange referral spam, and investment solicitation are restricted.', 'Educational blockchain discussion is allowed; trading solicitation is not.', '{}'::jsonb),
-  ('financial_scam', 'Financial scam', 'critical', 'block', 8, true, 'Fraudulent financial schemes, fake airdrops, wallet drain attempts, and deceptive offers are not permitted.', 'Never request funds, seed phrases, private keys, or deceptive wallet actions.', '{}'::jsonb),
-  ('phishing', 'Phishing', 'critical', 'block', 8, true, 'Attempts to steal credentials, session tokens, wallet secrets, or recovery phrases are not permitted.', 'Account and wallet safety is protected by default.', '{}'::jsonb),
-  ('private_key_request', 'Private key or seed phrase request', 'critical', 'block', 8, true, 'Requests for private keys, seed phrases, or wallet recovery data are not permitted.', 'No user should ever share wallet secrets.', '{}'::jsonb),
-  ('malware', 'Malware or abuse tooling', 'critical', 'block', 10, true, 'Malware, wallet drainers, credential theft, and abuse tooling are not permitted.', 'Security education is allowed; abuse instructions are not.', '{}'::jsonb),
-  ('spam', 'Spam', 'medium', 'review', 2, false, 'Repeated, low-value, automated, or disruptive content is restricted.', 'Keep community posts relevant and useful.', '{}'::jsonb),
-  ('advertising', 'Advertising', 'medium', 'review', 2, false, 'Unsolicited ads, aggressive promotion, and unrelated commercial posts are restricted.', 'Promotional content may be limited or removed.', '{}'::jsonb),
-  ('referral_abuse', 'Referral abuse', 'medium', 'review', 2, false, 'Referral farming, exchange invite spam, and incentive abuse are restricted.', 'Do not use the community primarily for referrals.', '{}'::jsonb),
-  ('harassment', 'Harassment', 'high', 'review', 3, false, 'Targeted harassment, abusive language, bullying, and intimidation are restricted.', 'Respectful disagreement is allowed; harassment is not.', '{}'::jsonb),
-  ('hate', 'Hate or dehumanization', 'critical', 'block', 6, true, 'Hate, dehumanization, or attacks against protected characteristics are not permitted.', 'Karyra Spark is designed for inclusive learning.', '{}'::jsonb),
-  ('violence_threat', 'Credible threat of violence', 'critical', 'block', 10, true, 'Credible threats, incitement, or instructions for violence are not permitted.', 'Threatening content is blocked and escalated.', '{}'::jsonb),
-  ('doxxing', 'Doxxing and personal data exposure', 'critical', 'block', 8, true, 'Sharing another person’s private data without consent is not permitted.', 'Protect personal privacy and safety.', '{}'::jsonb),
-  ('illegal_goods', 'Illegal goods or services', 'high', 'block', 5, false, 'Illegal goods, drugs, weapons, forged documents, and similar services are not permitted.', 'Do not use Karyra Spark to facilitate illegal transactions.', '{}'::jsonb),
-  ('external_link_risk', 'Risky external link', 'medium', 'review', 1, false, 'Suspicious links may be reviewed before publication.', 'Links should be relevant, safe, and transparent.', '{}'::jsonb),
-  ('toxicity_low', 'Low-level toxicity', 'low', 'review', 1, false, 'Mild insults or disruptive tone may be slowed, reviewed, or warned.', 'Keep feedback constructive and human.', '{}'::jsonb)
+insert into content_policy_categories (key, label, severity, default_decision, strike_points, locked, description, public_guidance) values
+  ('sexual_minors', 'Sexual exploitation of minors', 'critical', 'block', 10, true, 'Sexual or exploitative content involving minors is not permitted.', 'This category is always blocked and escalated for safety review.'),
+  ('nsfw_explicit', 'Explicit sexual content', 'high', 'block', 5, false, 'Explicit sexual images, nudity, or sexual solicitation are not allowed in the learning community.', 'Keep shared media safe for a public learning environment.'),
+  ('gambling', 'Gambling and betting', 'high', 'block', 4, false, 'Casino, slot, betting, togel, and similar gambling promotion are not allowed.', 'Do not use Karyra Spark to promote gambling or betting.'),
+  ('trading_solicitation', 'Trading solicitation', 'high', 'review', 3, false, 'Trading signals, profit guarantees, pump groups, exchange referral spam, and investment solicitation are restricted.', 'Educational blockchain discussion is allowed; trading solicitation is not.'),
+  ('financial_scam', 'Financial scam', 'critical', 'block', 8, true, 'Fraudulent financial schemes, fake airdrops, wallet drain attempts, and deceptive offers are not permitted.', 'Never request funds, seed phrases, private keys, or deceptive wallet actions.'),
+  ('phishing', 'Phishing', 'critical', 'block', 8, true, 'Attempts to steal credentials, session tokens, wallet secrets, or recovery phrases are not permitted.', 'Account and wallet safety is protected by default.'),
+  ('private_key_request', 'Private key or seed phrase request', 'critical', 'block', 8, true, 'Requests for private keys, seed phrases, or wallet recovery data are not permitted.', 'No user should ever share wallet secrets.'),
+  ('malware', 'Malware or abuse tooling', 'critical', 'block', 10, true, 'Malware, wallet drainers, credential theft, and abuse tooling are not permitted.', 'Security education is allowed; abuse instructions are not.'),
+  ('spam', 'Spam', 'medium', 'review', 2, false, 'Repeated, low-value, automated, or disruptive content is restricted.', 'Keep community posts relevant and useful.'),
+  ('advertising', 'Advertising', 'medium', 'review', 2, false, 'Unsolicited ads, aggressive promotion, and unrelated commercial posts are restricted.', 'Promotional content may be limited or removed.'),
+  ('referral_abuse', 'Referral abuse', 'medium', 'review', 2, false, 'Referral farming, exchange invite spam, and incentive abuse are restricted.', 'Do not use the community primarily for referrals.'),
+  ('harassment', 'Harassment', 'high', 'review', 3, false, 'Targeted harassment, abusive language, bullying, and intimidation are restricted.', 'Respectful disagreement is allowed; harassment is not.'),
+  ('hate', 'Hate or dehumanization', 'critical', 'block', 6, true, 'Hate, dehumanization, or attacks against protected characteristics are not permitted.', 'Karyra Spark is designed for inclusive learning.'),
+  ('violence_threat', 'Credible threat of violence', 'critical', 'block', 10, true, 'Credible threats, incitement, or instructions for violence are not permitted.', 'Threatening content is blocked and escalated.'),
+  ('doxxing', 'Doxxing and personal data exposure', 'critical', 'block', 8, true, 'Sharing another person’s private data without consent is not permitted.', 'Protect personal privacy and safety.'),
+  ('illegal_goods', 'Illegal goods or services', 'high', 'block', 5, false, 'Illegal goods, drugs, weapons, forged documents, and similar services are not permitted.', 'Do not use Karyra Spark to facilitate illegal transactions.'),
+  ('external_link_risk', 'Risky external link', 'medium', 'review', 1, false, 'Suspicious links may be reviewed before publication.', 'Links should be relevant, safe, and transparent.'),
+  ('toxicity_low', 'Low-level toxicity', 'low', 'review', 1, false, 'Mild insults or disruptive tone may be slowed, reviewed, or warned.', 'Keep feedback constructive and human.')
 on conflict (key) do update set
   label = excluded.label,
   severity = excluded.severity,
@@ -384,7 +285,6 @@ on conflict (key) do update set
   locked = excluded.locked,
   description = excluded.description,
   public_guidance = excluded.public_guidance,
-  metadata = excluded.metadata,
   updated_at = now();
 
 insert into content_policy_settings (key, value, locked, description) values
@@ -427,23 +327,9 @@ on conflict (key) do update set
   description = excluded.description,
   updated_at = now();
 
-create index if not exists social_posts_moderation_queue_idx
-  on social_posts(moderation_status, moderation_checked_at asc, created_at asc)
-  where moderation_status in ('pending_review', 'blocked');
-
-create index if not exists social_comments_moderation_queue_idx
-  on social_comments(moderation_status, moderation_checked_at asc, created_at asc)
-  where moderation_status in ('pending_review', 'blocked');
-
-create index if not exists media_assets_moderation_queue_idx
-  on media_assets(moderation_status, moderation_checked_at asc, created_at asc)
-  where moderation_status in ('pending_review', 'blocked');
-
-create index if not exists social_posts_moderation_categories_idx
-  on social_posts using gin (moderation_categories);
-
-create index if not exists social_comments_moderation_categories_idx
-  on social_comments using gin (moderation_categories);
-
-create index if not exists media_assets_moderation_categories_idx
-  on media_assets using gin (moderation_categories);
+create index if not exists social_posts_moderation_queue_idx on social_posts(moderation_status, moderation_checked_at asc, created_at asc) where moderation_status in ('pending_review', 'blocked');
+create index if not exists social_comments_moderation_queue_idx on social_comments(moderation_status, moderation_checked_at asc, created_at asc) where moderation_status in ('pending_review', 'blocked');
+create index if not exists media_assets_moderation_queue_idx on media_assets(moderation_status, moderation_checked_at asc, created_at asc) where moderation_status in ('pending_review', 'blocked');
+create index if not exists social_posts_moderation_categories_idx on social_posts using gin (moderation_categories);
+create index if not exists social_comments_moderation_categories_idx on social_comments using gin (moderation_categories);
+create index if not exists media_assets_moderation_categories_idx on media_assets using gin (moderation_categories);
