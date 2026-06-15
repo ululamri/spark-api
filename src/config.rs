@@ -15,6 +15,11 @@ pub struct AppConfig {
     pub s3_secret_key: Option<String>,
     pub s3_region: String,
     pub s3_presign_expires_seconds: i64,
+    pub media_optimizer_enabled: bool,
+    pub imgproxy_public_base_url: String,
+    pub imgproxy_source_base_url: String,
+    pub imgproxy_key_hex: Option<String>,
+    pub imgproxy_salt_hex: Option<String>,
     pub session_cookie_name: String,
     pub session_ttl_days: i64,
     pub cookie_secure: bool,
@@ -29,6 +34,7 @@ impl AppConfig {
     pub fn from_env() -> Self {
         let app_env = env_or("APP_ENV", "development");
         let cookie_secure_default = app_env == "production";
+        let web_origin = env_first(&["SPARK_WEB_ORIGIN", "WEB_ORIGIN"], "http://127.0.0.1:5173");
 
         Self {
             app_env,
@@ -36,7 +42,7 @@ impl AppConfig {
             port: env_first(&["SPARK_API_PORT", "APP_PORT"], "8787")
                 .parse()
                 .unwrap_or(8787),
-            web_origin: env_first(&["SPARK_WEB_ORIGIN", "WEB_ORIGIN"], "http://127.0.0.1:5173"),
+            web_origin: web_origin.clone(),
             database_url: env_or(
                 "DATABASE_URL",
                 "postgres://spark:spark_dev_password@127.0.0.1:5432/spark",
@@ -51,6 +57,14 @@ impl AppConfig {
             s3_presign_expires_seconds: env_or("S3_PRESIGN_EXPIRES_SECONDS", "900")
                 .parse()
                 .unwrap_or(900),
+            media_optimizer_enabled: env::var("SPARK_MEDIA_OPTIMIZER_ENABLED")
+                .ok()
+                .and_then(|value| parse_bool(&value))
+                .unwrap_or(false),
+            imgproxy_public_base_url: env_first(&["IMGPROXY_PUBLIC_BASE_URL"], "/media/optimized"),
+            imgproxy_source_base_url: env_first(&["IMGPROXY_SOURCE_BASE_URL"], &web_origin),
+            imgproxy_key_hex: env_optional(&["IMGPROXY_KEY_HEX"]),
+            imgproxy_salt_hex: env_optional(&["IMGPROXY_SALT_HEX"]),
             session_cookie_name: env_or("SPARK_SESSION_COOKIE", "spark_session"),
             session_ttl_days: env_or("SPARK_SESSION_TTL_DAYS", "14").parse().unwrap_or(14),
             cookie_secure: env::var("SPARK_COOKIE_SECURE")
