@@ -55,7 +55,6 @@ pub async fn provider(state: &AppState, provider: &str) -> Result<Option<AiProvi
     .bind(provider)
     .fetch_optional(&state.db)
     .await?;
-
     Ok(row)
 }
 
@@ -94,7 +93,7 @@ pub async fn ollama_chat(
     let response = client
         .post(format!("{base_url}/api/chat"))
         .json(&json!({
-            "model": model,
+            "model": &model,
             "stream": false,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -166,7 +165,6 @@ pub async fn ollama_moderate_text(
         output.score = 0.55;
         output.summary = "Local AI returned non-structured output; route to review.".to_string();
     }
-
     Ok(output)
 }
 
@@ -200,7 +198,7 @@ pub async fn openai_moderate_text(
     let response = client
         .post("https://api.openai.com/v1/moderations")
         .bearer_auth(api_key)
-        .json(&json!({"model": model, "input": text}))
+        .json(&json!({"model": &model, "input": text}))
         .send()
         .await
         .map_err(|error| ApiError::ServiceUnavailable(format!("external moderation request failed: {error}")))?;
@@ -259,12 +257,7 @@ pub async fn openai_moderate_text(
     })
 }
 
-pub async fn log_model_run(
-    state: &AppState,
-    moderation_event_id: Option<Uuid>,
-    output: &AiRunOutput,
-    input_type: &str,
-) -> Result<Uuid, ApiError> {
+pub async fn log_model_run(state: &AppState, moderation_event_id: Option<Uuid>, output: &AiRunOutput, input_type: &str) -> Result<Uuid, ApiError> {
     let id = Uuid::new_v4();
     let score = format!("{:.5}", output.score.clamp(0.0, 1.0));
     sqlx::query(
