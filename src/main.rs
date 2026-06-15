@@ -15,6 +15,7 @@ mod hub;
 mod lab;
 mod learning;
 mod media;
+mod media_optimizer;
 mod moderation;
 mod passport;
 mod profile;
