@@ -230,11 +230,12 @@ pub fn router() -> Router<AppState> {
 async fn scope() -> Json<ScopeResponse> {
     Json(ScopeResponse {
         module: module_path!(),
-        phase: "public-social-policy-runtime",
+        phase: "public-social-policy-runtime-audit-fix",
         implemented_now: vec![
             "api-backed-feed-read",
             "authenticated-post-create",
             "authenticated-comment-create",
+            "feed-comment-hydration",
             "post-and-comment-reactions",
             "viewer-hide-state",
             "profile-follow-state",
@@ -268,7 +269,7 @@ async fn feed(State(state): State<AppState>, headers: HeaderMap, Query(params): 
     let next_cursor = rows.last().map(|row| row.published_at.to_rfc3339());
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
-        items.push(hydrate_post(&state, viewer_id, row, false).await?);
+        items.push(hydrate_post(&state, viewer_id, row, true).await?);
     }
     Ok(Json(FeedResponse { items, next_cursor }))
 }
