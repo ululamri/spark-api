@@ -10,6 +10,7 @@ mod hub;
 mod lab;
 mod learning;
 mod media;
+mod moderation;
 mod passport;
 mod profile;
 mod progress;
