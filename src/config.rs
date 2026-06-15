@@ -19,6 +19,10 @@ pub struct AppConfig {
     pub session_ttl_days: i64,
     pub cookie_secure: bool,
     pub admin_token: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub ai_local_base_url: String,
+    pub ai_user_model: String,
+    pub ai_guard_model: String,
 }
 
 impl AppConfig {
@@ -56,6 +60,12 @@ impl AppConfig {
             admin_token: env::var("KARYRA_ADMIN_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
+            openai_api_key: env::var("OPENAI_API_KEY")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            ai_local_base_url: env_first(&["AI_LOCAL_BASE_URL", "OLLAMA_BASE_URL"], "http://127.0.0.1:11434"),
+            ai_user_model: env_first(&["AI_USER_MODEL", "OLLAMA_USER_MODEL"], "qwen2.5:3b"),
+            ai_guard_model: env_first(&["AI_GUARD_MODEL", "OLLAMA_GUARD_MODEL"], "llama-guard3:1b"),
         }
     }
 
