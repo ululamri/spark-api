@@ -43,38 +43,21 @@ impl ModerationOutcome {
         }
     }
 
-    pub fn is_allow(&self) -> bool {
-        self.decision == "allow"
-    }
-
-    pub fn is_block(&self) -> bool {
-        self.decision == "block"
-    }
-
-    pub fn is_review(&self) -> bool {
-        self.decision == "review"
-    }
+    pub fn is_allow(&self) -> bool { self.decision == "allow" }
+    pub fn is_block(&self) -> bool { self.decision == "block" }
+    pub fn is_review(&self) -> bool { self.decision == "review" }
 }
 
-pub async fn enforce_rate_limit(
-    state: &AppState,
-    user_id: Uuid,
-    scope: &str,
-) -> Result<(), ApiError> {
+pub async fn enforce_rate_limit(state: &AppState, user_id: Uuid, scope: &str) -> Result<(), ApiError> {
     let multiplier = restriction_multiplier(state, user_id, scope).await?;
-    let windows = rate_limit_windows(scope);
-
-    for window in windows {
+    for window in rate_limit_windows(scope) {
         let effective_limit = ((window.limit as f32) * multiplier).floor().max(1.0) as i32;
         let used = consume_rate_window(state, user_id, scope, window.seconds, effective_limit).await?;
         if used > effective_limit {
             record_rate_limit_event(state, user_id, scope, effective_limit, used, window.seconds).await?;
-            return Err(ApiError::RateLimited(format!(
-                "too many {scope} actions; please slow down and try again later"
-            )));
+            return Err(ApiError::RateLimited(format!("too many {scope} actions; please slow down and try again later")));
         }
     }
-
     Ok(())
 }
 
@@ -85,42 +68,21 @@ pub fn evaluate_text(input: &str) -> ModerationOutcome {
     let mut severity = "low";
     let mut score = 0.0_f32;
 
-    if contains_any(
-        &text,
-        &[
-            "csam",
-            "child porn",
-            "child sexual",
-            "seks anak",
-            "konten anak seksual",
-        ],
-    ) {
+    if contains_any(&text, &["csam", "minor exploitation", "child exploitation"]) {
         push_category(&mut categories, "sexual_minors");
         decision = "block";
         severity = "critical";
         score = score.max(0.99);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "bokep", "porn", "porno", "nude", "nudes", "telanjang", "sex video", "video sex",
-            "open bo", "onlyfans",
-        ],
-    ) {
+    if contains_any(&text, &["nsfw", "adult-content", "explicit-image", "unsafe-image", "onlyfans"]) {
         push_category(&mut categories, "nsfw_explicit");
         decision = max_decision(decision, "block");
         severity = max_severity(severity, "high");
         score = score.max(0.88);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "slot", "slot gacor", "casino", "judi", "togel", "betting", "taruhan", "parlay",
-            "jackpot", "maxwin", "scatter", "situs judi", "bandar",
-        ],
-    ) {
+    if contains_any(&text, &["slot", "slot gacor", "casino", "judi", "togel", "betting", "taruhan", "parlay", "jackpot", "maxwin", "scatter", "situs judi", "bandar"]) {
         push_category(&mut categories, "gambling");
         decision = max_decision(decision, "block");
         severity = max_severity(severity, "high");
@@ -134,59 +96,28 @@ pub fn evaluate_text(input: &str) -> ModerationOutcome {
         score = score.max(0.96);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "wallet drainer",
-            "drain wallet",
-            "fake airdrop",
-            "claim airdrop sekarang",
-            "connect wallet to claim",
-            "verifikasi seed phrase",
-            "masukkan seed phrase",
-            "kirim private key",
-        ],
-    ) {
+    if contains_any(&text, &["wallet drainer", "drain wallet", "fake airdrop", "connect wallet to claim", "verifikasi seed phrase", "masukkan seed phrase", "kirim private key"]) {
         push_category(&mut categories, "financial_scam");
         decision = max_decision(decision, "block");
         severity = max_severity(severity, "critical");
         score = score.max(0.94);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "stealer", "keylogger", "malware", "ransomware", "credential theft", "ambil password",
-            "curi akun", "phishing kit",
-        ],
-    ) && !is_security_education_context(&text)
-    {
+    if contains_any(&text, &["stealer", "keylogger", "malware", "ransomware", "credential theft", "phishing kit"]) && !is_security_education_context(&text) {
         push_category(&mut categories, "malware");
         decision = max_decision(decision, "block");
         severity = max_severity(severity, "critical");
         score = score.max(0.93);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "kill yourself", "bunuh diri sana", "mati saja", "akan kubunuh", "i will kill you",
-            "ancaman bunuh",
-        ],
-    ) {
+    if contains_any(&text, &["kill yourself", "i will kill you", "credible threat", "ancaman bunuh"]) {
         push_category(&mut categories, "violence_threat");
         decision = max_decision(decision, "block");
         severity = max_severity(severity, "critical");
         score = score.max(0.92);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "dox", "doxxing", "alamat rumahnya", "nomor ktp", "nik dia", "sebar alamat",
-            "leak data pribadi",
-        ],
-    ) {
+    if contains_any(&text, &["dox", "doxxing", "alamat rumahnya", "nomor ktp", "nik dia", "sebar alamat", "leak data pribadi"]) {
         push_category(&mut categories, "doxxing");
         decision = max_decision(decision, "block");
         severity = max_severity(severity, "critical");
@@ -200,14 +131,7 @@ pub fn evaluate_text(input: &str) -> ModerationOutcome {
         score = score.max(0.78);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "join grup vip", "join group vip", "referral exchange", "kode referral", "daftar pakai kode",
-            "promo terbatas", "dm for paid promo", "paid promote", "endorse", "iklan murah",
-            "wa.me/", "t.me/", "bit.ly/", "tinyurl.com/",
-        ],
-    ) {
+    if contains_any(&text, &["join grup vip", "join group vip", "referral exchange", "kode referral", "daftar pakai kode", "promo terbatas", "dm for paid promo", "paid promote", "endorse", "iklan murah", "wa.me/", "t.me/", "bit.ly/", "tinyurl.com/"]) {
         push_category(&mut categories, "advertising");
         decision = max_decision(decision, "review");
         severity = max_severity(severity, "medium");
@@ -221,21 +145,14 @@ pub fn evaluate_text(input: &str) -> ModerationOutcome {
         score = score.max(0.6);
     }
 
-    if contains_any(
-        &text,
-        &[
-            "bodoh", "tolol", "goblok", "idiot", "stupid", "anjing lu", "bangsat",
-        ],
-    ) {
+    if contains_any(&text, &["bodoh", "tolol", "goblok", "idiot", "stupid", "anjing lu", "bangsat"]) {
         push_category(&mut categories, "toxicity_low");
         decision = max_decision(decision, "review");
         severity = max_severity(severity, "low");
         score = score.max(0.55);
     }
 
-    if decision == "allow" {
-        return ModerationOutcome::allow();
-    }
+    if decision == "allow" { return ModerationOutcome::allow(); }
 
     ModerationOutcome {
         decision,
@@ -249,25 +166,10 @@ pub fn evaluate_text(input: &str) -> ModerationOutcome {
     }
 }
 
-pub fn evaluate_media_metadata(
-    original_file_name: &str,
-    mime_type: &str,
-    purpose: &str,
-    metadata: &serde_json::Value,
-) -> ModerationOutcome {
-    let text = format!(
-        "{} {} {} {}",
-        original_file_name,
-        mime_type,
-        purpose,
-        metadata
-    )
-    .to_lowercase();
-
+pub fn evaluate_media_metadata(original_file_name: &str, mime_type: &str, purpose: &str, metadata: &serde_json::Value) -> ModerationOutcome {
+    let text = format!("{} {} {} {}", original_file_name, mime_type, purpose, metadata).to_lowercase();
     let mut outcome = evaluate_text(&text);
-
-    if outcome.is_allow() && mime_type.starts_with("image/") && contains_any(&text, &["nsfw", "nude", "bokep", "porn", "porno", "sex"])
-    {
+    if outcome.is_allow() && mime_type.starts_with("image/") && contains_any(&text, &["nsfw", "adult-content", "explicit-image", "unsafe-image"]) {
         outcome = ModerationOutcome {
             decision: "block",
             status: "blocked",
@@ -276,10 +178,9 @@ pub fn evaluate_media_metadata(
             score: Some(0.88),
             source: "rules",
             user_message: user_message_for("block"),
-            admin_summary: "Risky image metadata matched NSFW indicators.".to_string(),
+            admin_summary: "Risky image metadata matched unsafe-image indicators.".to_string(),
         };
     }
-
     outcome
 }
 
@@ -292,13 +193,9 @@ pub async fn record_content_decision(
     event_type: &str,
     outcome: &ModerationOutcome,
 ) -> Result<Option<Uuid>, ApiError> {
-    if outcome.is_allow() && outcome.categories.is_empty() {
-        return Ok(None);
-    }
-
+    if outcome.is_allow() && outcome.categories.is_empty() { return Ok(None); }
     let event_id = Uuid::new_v4();
     let score = outcome.score.map(|value| format!("{value:.5}"));
-
     sqlx::query(
         r#"
         insert into moderation_events (
@@ -328,37 +225,18 @@ pub async fn record_content_decision(
     if let Some(owner_user_id) = target_owner_user_id {
         apply_strikes(state, owner_user_id, event_id, outcome).await?;
     }
-
     Ok(Some(event_id))
 }
 
-async fn apply_strikes(
-    state: &AppState,
-    user_id: Uuid,
-    event_id: Uuid,
-    outcome: &ModerationOutcome,
-) -> Result<(), ApiError> {
-    if outcome.is_allow() || outcome.categories.is_empty() {
-        return Ok(());
-    }
-
-    let rows = sqlx::query_as::<_, CategoryPointsRow>(
-        "select key, strike_points from content_policy_categories where key = any($1)",
-    )
-    .bind(outcome.categories.clone())
-    .fetch_all(&state.db)
-    .await?;
-
+async fn apply_strikes(state: &AppState, user_id: Uuid, event_id: Uuid, outcome: &ModerationOutcome) -> Result<(), ApiError> {
+    if outcome.is_allow() || outcome.categories.is_empty() { return Ok(()); }
+    let rows = sqlx::query_as::<_, CategoryPointsRow>("select key, strike_points from content_policy_categories where key = any($1)")
+        .bind(outcome.categories.clone())
+        .fetch_all(&state.db)
+        .await?;
     let total_points: i32 = rows.iter().map(|row| row.strike_points).sum();
-    if total_points <= 0 {
-        return Ok(());
-    }
-
-    let category_label = if rows.is_empty() {
-        outcome.categories.join(",")
-    } else {
-        rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>().join(",")
-    };
+    if total_points <= 0 { return Ok(()); }
+    let category_label = if rows.is_empty() { outcome.categories.join(",") } else { rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>().join(",") };
 
     sqlx::query(
         r#"
@@ -374,13 +252,12 @@ async fn apply_strikes(
     .bind(total_points)
     .bind(&outcome.user_message)
     .bind(outcome.source)
-    .bind(json!({"categories": outcome.categories, "decision": outcome.decision}))
+    .bind(json!({"categories": outcome.categories.clone(), "decision": outcome.decision}))
     .execute(&state.db)
     .await?;
 
     let safety_level = safety_level_for(total_points);
     let restriction_level = restriction_level_for(total_points);
-
     let active_points = sqlx::query_scalar::<_, i32>(
         r#"
         insert into user_safety_scores (
@@ -437,15 +314,10 @@ async fn apply_strikes(
         .execute(&state.db)
         .await?;
     }
-
     Ok(())
 }
 
-async fn restriction_multiplier(
-    state: &AppState,
-    user_id: Uuid,
-    scope: &str,
-) -> Result<f32, ApiError> {
+async fn restriction_multiplier(state: &AppState, user_id: Uuid, scope: &str) -> Result<f32, ApiError> {
     let rows = sqlx::query_as::<_, RestrictionRow>(
         r#"
         select level, reason
@@ -469,17 +341,9 @@ async fn restriction_multiplier(
     .bind(scope)
     .fetch_all(&state.db)
     .await?;
-
-    let Some(row) = rows.first() else {
-        return Ok(1.0);
-    };
-
+    let Some(row) = rows.first() else { return Ok(1.0); };
     match row.level.as_str() {
-        "hard_block" | "temporary_restriction" => Err(ApiError::RateLimited(if row.reason.is_empty() {
-            "this action is temporarily restricted".to_string()
-        } else {
-            row.reason.clone()
-        })),
+        "hard_block" | "temporary_restriction" => Err(ApiError::RateLimited(if row.reason.is_empty() { "this action is temporarily restricted".to_string() } else { row.reason.clone() })),
         "probation" => Ok(0.25),
         "reduced_velocity" => Ok(0.5),
         "gentle_friction" => Ok(0.75),
@@ -488,10 +352,7 @@ async fn restriction_multiplier(
 }
 
 #[derive(Clone, Copy)]
-struct RateWindow {
-    seconds: i32,
-    limit: i32,
-}
+struct RateWindow { seconds: i32, limit: i32 }
 
 fn rate_limit_windows(scope: &str) -> Vec<RateWindow> {
     match scope {
@@ -508,18 +369,11 @@ fn rate_limit_windows(scope: &str) -> Vec<RateWindow> {
     }
 }
 
-async fn consume_rate_window(
-    state: &AppState,
-    user_id: Uuid,
-    scope: &str,
-    window_seconds: i32,
-    limit_count: i32,
-) -> Result<i32, ApiError> {
+async fn consume_rate_window(state: &AppState, user_id: Uuid, scope: &str, window_seconds: i32, limit_count: i32) -> Result<i32, ApiError> {
     let now = Utc::now();
     let aligned = now.timestamp() - now.timestamp().rem_euclid(window_seconds as i64);
     let window_start: DateTime<Utc> = DateTime::from_timestamp(aligned, 0).unwrap_or(now);
     let reset_at = window_start + Duration::seconds(window_seconds as i64);
-
     let used = sqlx::query_scalar::<_, i32>(
         r#"
         insert into user_rate_limit_buckets (
@@ -541,18 +395,10 @@ async fn consume_rate_window(
     .bind(reset_at)
     .fetch_one(&state.db)
     .await?;
-
     Ok(used)
 }
 
-async fn record_rate_limit_event(
-    state: &AppState,
-    user_id: Uuid,
-    scope: &str,
-    limit: i32,
-    used: i32,
-    window_seconds: i32,
-) -> Result<(), ApiError> {
+async fn record_rate_limit_event(state: &AppState, user_id: Uuid, scope: &str, limit: i32, used: i32, window_seconds: i32) -> Result<(), ApiError> {
     let outcome = ModerationOutcome {
         decision: "restrict",
         status: "pending_review",
@@ -563,113 +409,42 @@ async fn record_rate_limit_event(
         user_message: "Please slow down before trying this action again.".to_string(),
         admin_summary: format!("Rate limit exceeded for {scope}: {used}/{limit} in {window_seconds}s."),
     };
-
-    record_content_decision(
-        state,
-        Some(user_id),
-        "user",
-        Some(user_id),
-        Some(user_id),
-        "rate_limit",
-        &outcome,
-    )
-    .await?;
-
+    record_content_decision(state, Some(user_id), "user", Some(user_id), Some(user_id), "rate_limit", &outcome).await?;
     Ok(())
 }
 
 fn restriction_for_points(points: i32) -> Option<(&'static str, i32)> {
-    if points >= 15 {
-        Some(("hard_block", 168))
-    } else if points >= 10 {
-        Some(("temporary_restriction", 168))
-    } else if points >= 6 {
-        Some(("probation", 72))
-    } else if points >= 3 {
-        Some(("reduced_velocity", 24))
-    } else if points >= 1 {
-        Some(("gentle_friction", 1))
-    } else {
-        None
-    }
+    if points >= 15 { Some(("hard_block", 168)) } else if points >= 10 { Some(("temporary_restriction", 168)) } else if points >= 6 { Some(("probation", 72)) } else if points >= 3 { Some(("reduced_velocity", 24)) } else if points >= 1 { Some(("gentle_friction", 1)) } else { None }
 }
 
 fn safety_level_for(points: i32) -> &'static str {
-    if points >= 15 {
-        "admin_escalation"
-    } else if points >= 10 {
-        "temporary_restriction"
-    } else if points >= 6 {
-        "probation"
-    } else if points >= 3 {
-        "reduced_velocity"
-    } else if points >= 1 {
-        "gentle_friction"
-    } else {
-        "normal"
-    }
+    if points >= 15 { "admin_escalation" } else if points >= 10 { "temporary_restriction" } else if points >= 6 { "probation" } else if points >= 3 { "reduced_velocity" } else if points >= 1 { "gentle_friction" } else { "normal" }
 }
 
 fn restriction_level_for(points: i32) -> &'static str {
-    if points >= 15 {
-        "hard_block"
-    } else if points >= 10 {
-        "temporary_restriction"
-    } else if points >= 6 {
-        "probation"
-    } else if points >= 3 {
-        "reduced_velocity"
-    } else if points >= 1 {
-        "gentle_friction"
-    } else {
-        "none"
-    }
+    if points >= 15 { "hard_block" } else if points >= 10 { "temporary_restriction" } else if points >= 6 { "probation" } else if points >= 3 { "reduced_velocity" } else if points >= 1 { "gentle_friction" } else { "none" }
 }
 
-fn contains_any(text: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| text.contains(needle))
-}
+fn contains_any(text: &str, needles: &[&str]) -> bool { needles.iter().any(|needle| text.contains(needle)) }
 
 fn push_category(categories: &mut Vec<String>, category: &str) {
-    if !categories.iter().any(|item| item == category) {
-        categories.push(category.to_string());
-    }
+    if !categories.iter().any(|item| item == category) { categories.push(category.to_string()); }
 }
 
 fn max_decision(current: &'static str, next: &'static str) -> &'static str {
-    if decision_rank(next) > decision_rank(current) {
-        next
-    } else {
-        current
-    }
+    if decision_rank(next) > decision_rank(current) { next } else { current }
 }
 
 fn decision_rank(value: &str) -> i32 {
-    match value {
-        "allow" => 0,
-        "review" => 1,
-        "restrict" => 2,
-        "block" => 3,
-        _ => 0,
-    }
+    match value { "allow" => 0, "review" => 1, "restrict" => 2, "block" => 3, _ => 0 }
 }
 
 fn max_severity(current: &'static str, next: &'static str) -> &'static str {
-    if severity_rank(next) > severity_rank(current) {
-        next
-    } else {
-        current
-    }
+    if severity_rank(next) > severity_rank(current) { next } else { current }
 }
 
 fn severity_rank(value: &str) -> i32 {
-    match value {
-        "low" => 0,
-        "medium" => 1,
-        "high" => 2,
-        "critical" => 3,
-        _ => 0,
-    }
+    match value { "low" => 0, "medium" => 1, "high" => 2, "critical" => 3, _ => 0 }
 }
 
 fn user_message_for(decision: &str) -> String {
@@ -688,8 +463,7 @@ fn looks_like_private_key_request(text: &str) -> bool {
 
 fn looks_like_trading_solicitation(text: &str) -> bool {
     contains_any(text, &["sinyal trading", "signal trading", "trading signal", "pump group", "grup pump", "entry sekarang", "entry now", "profit guarantee", "profit guaranteed", "jaminan profit", "cuan harian", "roi harian", "join vip", "grup vip", "copy trade", "copytrade"])
-        || (contains_any(text, &["buy now", "beli sekarang", "long sekarang", "short sekarang"])
-            && contains_any(text, &["profit", "cuan", "moon", "pump", "x100", "x10"]))
+        || (contains_any(text, &["buy now", "beli sekarang", "long sekarang", "short sekarang"]) && contains_any(text, &["profit", "cuan", "moon", "pump", "x100", "x10"]))
 }
 
 fn is_security_education_context(text: &str) -> bool {
