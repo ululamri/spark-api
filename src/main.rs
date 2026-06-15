@@ -1,5 +1,8 @@
 mod admin;
+mod admin_ai;
 mod admin_social;
+mod ai;
+mod ai_runtime;
 mod auth;
 mod community;
 mod config;
