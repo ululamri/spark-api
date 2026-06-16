@@ -2,6 +2,8 @@
 
 This file is an operator checklist. Do not enable optimized media until every smoke test passes.
 
+AlmaLinux 9 should use the official imgproxy container image instead of native packages/binaries. Native install can fail because imgproxy depends on libvips and current exported Linux binaries require newer libc/libstdc++ than AlmaLinux 9 commonly provides.
+
 ## 1. Pull latest backend
 
 ```bash
@@ -9,7 +11,26 @@ cd /opt/karyra/spark-api
 git pull
 ```
 
-## 2. Generate server-only signing secrets
+## 2. Install Podman if needed
+
+```bash
+sudo dnf install -y podman
+podman --version
+```
+
+## 3. Pull official imgproxy image
+
+```bash
+sudo podman pull ghcr.io/imgproxy/imgproxy:latest
+```
+
+For AMD64-only servers, the explicit tag can also be used:
+
+```bash
+sudo podman pull ghcr.io/imgproxy/imgproxy:latest-amd64
+```
+
+## 4. Generate server-only signing secrets
 
 imgproxy production URLs should be signed with a key and salt. Generate separate values:
 
@@ -25,7 +46,7 @@ Then append runtime options:
 
 ```bash
 sudo tee -a /etc/karyra/imgproxy.env >/dev/null <<'EOF'
-IMGPROXY_BIND=:8088
+IMGPROXY_BIND=:8080
 IMGPROXY_USE_ETAG=true
 IMGPROXY_ENABLE_WEBP_DETECTION=true
 IMGPROXY_ENABLE_AVIF_DETECTION=true
@@ -46,30 +67,46 @@ sudo chmod 600 /etc/karyra/imgproxy.env
 sudo chown root:root /etc/karyra/imgproxy.env
 ```
 
-## 3. Install imgproxy binary
-
-Install `imgproxy` to:
-
-```text
-/usr/local/bin/imgproxy
-```
-
-Then verify:
+Validate the env file:
 
 ```bash
-/usr/local/bin/imgproxy -version || /usr/local/bin/imgproxy --version || true
+cd /opt/karyra/spark-api
+sh deploy/check-imgproxy-env.sh /etc/karyra/imgproxy.env
 ```
 
-## 4. Create service user
+## 5. Create systemd service using Podman
+
+Create the service file:
 
 ```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin imgproxy 2>/dev/null || true
+sudo tee /etc/systemd/system/karyra-imgproxy.service >/dev/null <<'EOF'
+[Unit]
+Description=Karyra Spark imgproxy media optimizer container
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/karyra/imgproxy.env
+ExecStartPre=-/usr/bin/podman rm -f karyra-imgproxy
+ExecStart=/usr/bin/podman run --name karyra-imgproxy --rm \
+  --env-file /etc/karyra/imgproxy.env \
+  -p 127.0.0.1:8088:8080 \
+  --security-opt=no-new-privileges \
+  ghcr.io/imgproxy/imgproxy:latest
+ExecStop=/usr/bin/podman stop -t 10 karyra-imgproxy
+Restart=always
+RestartSec=3
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
 ```
 
-## 5. Install systemd unit
+Enable and start:
 
 ```bash
-sudo cp /opt/karyra/spark-api/deploy/karyra-imgproxy.service.example /etc/systemd/system/karyra-imgproxy.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now karyra-imgproxy
 sudo systemctl status karyra-imgproxy --no-pager
@@ -85,6 +122,7 @@ If `/health` is not available in the installed imgproxy build, check service log
 
 ```bash
 journalctl -u karyra-imgproxy -n 80 --no-pager
+sudo podman ps --filter name=karyra-imgproxy
 ```
 
 ## 7. Add Spark API env values
@@ -202,4 +240,5 @@ sudo systemctl reload caddy
 
 # Service stop if needed
 sudo systemctl stop karyra-imgproxy
+sudo podman rm -f karyra-imgproxy 2>/dev/null || true
 ```
