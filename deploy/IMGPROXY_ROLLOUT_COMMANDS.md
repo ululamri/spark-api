@@ -46,7 +46,7 @@ Then append runtime options:
 
 ```bash
 sudo tee -a /etc/karyra/imgproxy.env >/dev/null <<'EOF'
-IMGPROXY_BIND=:8080
+IMGPROXY_BIND=127.0.0.1:8088
 IMGPROXY_USE_ETAG=true
 IMGPROXY_ENABLE_WEBP_DETECTION=true
 IMGPROXY_ENABLE_AVIF_DETECTION=true
@@ -89,11 +89,7 @@ After=network-online.target
 Type=simple
 EnvironmentFile=/etc/karyra/imgproxy.env
 ExecStartPre=-/usr/bin/podman rm -f karyra-imgproxy
-ExecStart=/usr/bin/podman run --name karyra-imgproxy --rm \
-  --env-file /etc/karyra/imgproxy.env \
-  -p 127.0.0.1:8088:8080 \
-  --security-opt=no-new-privileges \
-  ghcr.io/imgproxy/imgproxy:latest
+ExecStart=/usr/bin/podman run --name karyra-imgproxy --rm --network host --cgroups=disabled --env-file /etc/karyra/imgproxy.env ghcr.io/imgproxy/imgproxy:latest-amd64
 ExecStop=/usr/bin/podman stop -t 10 karyra-imgproxy
 Restart=always
 RestartSec=3
@@ -172,10 +168,12 @@ salt_configured: true
 
 ## 9. Enable Caddy optimized media route
 
-Only after imgproxy service is healthy, uncomment the `/media/optimized/*` block in live `/etc/caddy/Caddyfile`:
+Only after imgproxy service is healthy, add the `/media/optimized/*` block in live `/etc/caddy/Caddyfile` before the Spark frontend fallback.
+
+Use `handle_path`, not `handle`, because Caddy must strip `/media/optimized` before proxying to imgproxy:
 
 ```caddy
-handle /media/optimized/* {
+handle_path /media/optimized/* {
 	header Cache-Control "public, max-age=2592000, stale-while-revalidate=86400"
 	reverse_proxy 127.0.0.1:8088
 }
