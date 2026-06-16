@@ -54,10 +54,8 @@ pub fn build_imgproxy_url(
         MediaFit::Fit => "fit",
         MediaFit::Fill => "fill",
     };
-    let path = format!(
-        "/rs:{resize}:{width}:{height}/q:82/plain/{}@webp",
-        source_url.trim()
-    );
+    let encoded_source = base64_url_no_pad(source_url.trim().as_bytes());
+    let path = format!("/rs:{resize}:{width}:{height}/q:82/{encoded_source}.webp");
     let signature = imgproxy_signature(config, &path)?;
     Some(format!(
         "{}{}{}",
