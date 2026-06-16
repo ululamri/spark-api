@@ -20,7 +20,11 @@ struct AdminEnvelope<T> {
 }
 
 fn success<T>(data: T) -> Json<AdminEnvelope<T>> {
-    Json(AdminEnvelope { ok: true, data, generated_at: Utc::now() })
+    Json(AdminEnvelope {
+        ok: true,
+        data,
+        generated_at: Utc::now(),
+    })
 }
 
 pub fn router() -> Router<AppState> {
@@ -47,7 +51,10 @@ struct RoleInfo {
     capabilities: Vec<String>,
 }
 
-async fn scope(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<AdminEnvelope<ScopeData>>, ApiError> {
+async fn scope(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AdminEnvelope<ScopeData>>, ApiError> {
     admin_auth::authorize_with_capability(&state, &headers, "audit_read").await?;
     Ok(success(ScopeData {
         module: module_path!(),
@@ -60,11 +67,15 @@ async fn scope(State(state): State<AppState>, headers: HeaderMap) -> Result<Json
             "POST /api/admin/team/members",
             "POST /api/admin/team/members/:user_id/revoke",
         ],
-        auth_model: "super-admin token bootstrap plus session-based sub-admin/moderator assignments",
+        auth_model:
+            "super-admin token bootstrap plus session-based sub-admin/moderator assignments",
     }))
 }
 
-async fn capabilities(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<AdminEnvelope<Vec<RoleInfo>>>, ApiError> {
+async fn capabilities(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AdminEnvelope<Vec<RoleInfo>>>, ApiError> {
     admin_auth::authorize_with_capability(&state, &headers, "audit_read").await?;
     Ok(success(role_catalog()))
 }
@@ -93,8 +104,17 @@ async fn members(
     admin_auth::authorize_with_capability(&state, &headers, "audit_read").await?;
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
     let offset = query.offset.unwrap_or(0).max(0);
-    let role = query.role.as_deref().map(admin_auth::normalize_role).transpose()?;
-    let status = query.status.as_deref().map(normalize_status).transpose()?.unwrap_or_else(|| "active".to_string());
+    let role = query
+        .role
+        .as_deref()
+        .map(admin_auth::normalize_role)
+        .transpose()?;
+    let status = query
+        .status
+        .as_deref()
+        .map(normalize_status)
+        .transpose()?
+        .unwrap_or_else(|| "active".to_string());
 
     let items = sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
         r#"
@@ -142,7 +162,12 @@ async fn members(
     .fetch_one(&state.db)
     .await?;
 
-    Ok(success(MembersData { items, total, limit, offset }))
+    Ok(success(MembersData {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -270,34 +295,50 @@ async fn revoke_member(
     Ok(success(MemberWriteData { assignment }))
 }
 
-async fn resolve_target_user(state: &AppState, user_id: Option<Uuid>, email: Option<&str>) -> Result<Uuid, ApiError> {
+async fn resolve_target_user(
+    state: &AppState,
+    user_id: Option<Uuid>,
+    email: Option<&str>,
+) -> Result<Uuid, ApiError> {
     if let Some(id) = user_id {
-        let exists = sqlx::query_scalar::<_, bool>("select exists(select 1 from users where id = $1 and status = 'active')")
-            .bind(id)
-            .fetch_one(&state.db)
-            .await?;
+        let exists = sqlx::query_scalar::<_, bool>(
+            "select exists(select 1 from users where id = $1 and status = 'active')",
+        )
+        .bind(id)
+        .fetch_one(&state.db)
+        .await?;
         if exists {
             return Ok(id);
         }
-        return Err(ApiError::BadRequest("target user was not found or is not active".to_string()));
+        return Err(ApiError::BadRequest(
+            "target user was not found or is not active".to_string(),
+        ));
     }
 
     let Some(email) = email else {
-        return Err(ApiError::BadRequest("user_id or email is required".to_string()));
+        return Err(ApiError::BadRequest(
+            "user_id or email is required".to_string(),
+        ));
     };
     let email = email.trim().to_ascii_lowercase();
     if email.is_empty() || email.chars().count() > 320 || !email.contains('@') {
         return Err(ApiError::BadRequest("valid email is required".to_string()));
     }
 
-    sqlx::query_scalar::<_, Uuid>("select id from users where lower(email) = lower($1) and status = 'active'")
-        .bind(email)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("target user was not found or is not active".to_string()))
+    sqlx::query_scalar::<_, Uuid>(
+        "select id from users where lower(email) = lower($1) and status = 'active'",
+    )
+    .bind(email)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("target user was not found or is not active".to_string()))
 }
 
-async fn fetch_active_assignment(state: &AppState, user_id: Uuid, role: &str) -> Result<admin_auth::AdminAssignmentRow, ApiError> {
+async fn fetch_active_assignment(
+    state: &AppState,
+    user_id: Uuid,
+    role: &str,
+) -> Result<admin_auth::AdminAssignmentRow, ApiError> {
     sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
         r#"
         select ara.id,
@@ -331,7 +372,9 @@ fn normalize_status(input: &str) -> Result<String, ApiError> {
         "active" => Ok("active".to_string()),
         "revoked" => Ok("revoked".to_string()),
         "expired" => Ok("expired".to_string()),
-        _ => Err(ApiError::BadRequest("status must be active, revoked, or expired".to_string())),
+        _ => Err(ApiError::BadRequest(
+            "status must be active, revoked, or expired".to_string(),
+        )),
     }
 }
 
@@ -341,7 +384,9 @@ fn clean_reason(input: Option<&str>) -> Result<String, ApiError> {
         return Err(ApiError::BadRequest("reason is too long".to_string()));
     }
     if value.chars().any(char::is_control) {
-        return Err(ApiError::BadRequest("reason cannot contain control characters".to_string()));
+        return Err(ApiError::BadRequest(
+            "reason cannot contain control characters".to_string(),
+        ));
     }
     Ok(value.to_string())
 }
@@ -351,17 +396,27 @@ fn role_catalog() -> Vec<RoleInfo> {
         RoleInfo {
             role: "super_admin",
             description: "Bootstrap/developer-level admin controlled by the existing server token.",
-            capabilities: admin_auth::SUPER_ADMIN_CAPABILITIES.iter().map(|value| value.to_string()).collect(),
+            capabilities: admin_auth::SUPER_ADMIN_CAPABILITIES
+                .iter()
+                .map(|value| value.to_string())
+                .collect(),
         },
         RoleInfo {
             role: "sub_admin",
-            description: "Delegated admin role with configurable capabilities below super-admin level.",
-            capabilities: admin_auth::SUB_ADMIN_ALLOWED_CAPABILITIES.iter().map(|value| value.to_string()).collect(),
+            description:
+                "Delegated admin role with configurable capabilities below super-admin level.",
+            capabilities: admin_auth::SUB_ADMIN_ALLOWED_CAPABILITIES
+                .iter()
+                .map(|value| value.to_string())
+                .collect(),
         },
         RoleInfo {
             role: "moderator",
             description: "Moderation-focused role with configurable review/action capabilities.",
-            capabilities: admin_auth::MODERATOR_ALLOWED_CAPABILITIES.iter().map(|value| value.to_string()).collect(),
+            capabilities: admin_auth::MODERATOR_ALLOWED_CAPABILITIES
+                .iter()
+                .map(|value| value.to_string())
+                .collect(),
         },
     ]
 }

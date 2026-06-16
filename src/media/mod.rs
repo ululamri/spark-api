@@ -633,7 +633,10 @@ fn presign_s3_url(
     let credential = format!("{access_key}/{credential_scope}");
     let canonical_uri = canonical_storage_uri(&endpoint.path_prefix, bucket, object_key);
     let mut query = vec![
-        ("X-Amz-Algorithm".to_string(), "AWS4-HMAC-SHA256".to_string()),
+        (
+            "X-Amz-Algorithm".to_string(),
+            "AWS4-HMAC-SHA256".to_string(),
+        ),
         ("X-Amz-Credential".to_string(), credential),
         ("X-Amz-Date".to_string(), amz_date),
         ("X-Amz-Expires".to_string(), expires_seconds.to_string()),

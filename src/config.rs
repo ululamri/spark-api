@@ -52,7 +52,11 @@ impl AppConfig {
             s3_bucket_public: env_or("S3_BUCKET_PUBLIC", "spark-public"),
             s3_bucket_private: env_or("S3_BUCKET_PRIVATE", "spark-private"),
             s3_access_key: env_optional(&["S3_ACCESS_KEY", "MINIO_ROOT_USER", "MINIO_ACCESS_KEY"]),
-            s3_secret_key: env_optional(&["S3_SECRET_KEY", "MINIO_ROOT_PASSWORD", "MINIO_SECRET_KEY"]),
+            s3_secret_key: env_optional(&[
+                "S3_SECRET_KEY",
+                "MINIO_ROOT_PASSWORD",
+                "MINIO_SECRET_KEY",
+            ]),
             s3_region: env_or("S3_REGION", "us-east-1"),
             s3_presign_expires_seconds: env_or("S3_PRESIGN_EXPIRES_SECONDS", "900")
                 .parse()
@@ -77,7 +81,10 @@ impl AppConfig {
             openai_api_key: env::var("OPENAI_API_KEY")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
-            ai_local_base_url: env_first(&["AI_LOCAL_BASE_URL", "OLLAMA_BASE_URL"], "http://127.0.0.1:11434"),
+            ai_local_base_url: env_first(
+                &["AI_LOCAL_BASE_URL", "OLLAMA_BASE_URL"],
+                "http://127.0.0.1:11434",
+            ),
             ai_user_model: env_first(&["AI_USER_MODEL", "OLLAMA_USER_MODEL"], "qwen2.5:3b"),
             ai_guard_model: env_first(&["AI_GUARD_MODEL", "OLLAMA_GUARD_MODEL"], "llama-guard3:1b"),
         }

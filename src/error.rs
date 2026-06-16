@@ -47,7 +47,10 @@ impl IntoResponse for ApiError {
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
         if let sqlx::Error::Database(database_error) = &error {
-            let code = database_error.code().map(|value| value.to_string()).unwrap_or_default();
+            let code = database_error
+                .code()
+                .map(|value| value.to_string())
+                .unwrap_or_default();
             let message = database_error.message().to_string();
 
             if code == "P0001" {

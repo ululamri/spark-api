@@ -66,7 +66,9 @@ impl IntoResponse for AdminSocialError {
                 "Admin access is not authorized.".to_string(),
             ),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, "admin_bad_request", message),
-            Self::NotFound(entity) => (StatusCode::NOT_FOUND, "admin_not_found", entity.to_string()),
+            Self::NotFound(entity) => {
+                (StatusCode::NOT_FOUND, "admin_not_found", entity.to_string())
+            }
             Self::Database(error) => {
                 tracing::error!(?error, "admin social database operation failed");
                 (
@@ -144,7 +146,13 @@ async fn scope(
             "GET /api/admin/social/comments",
             "POST /api/admin/social/moderation-actions",
         ],
-        actions: vec!["hide", "remove", "restore", "dismiss_report", "mark_reviewed"],
+        actions: vec![
+            "hide",
+            "remove",
+            "restore",
+            "dismiss_report",
+            "mark_reviewed",
+        ],
         data_source: "database",
     }))
 }
@@ -472,15 +480,35 @@ async fn apply_moderation_action(
     report_id: Option<Uuid>,
 ) -> Result<(), AdminSocialError> {
     match (action_row.target_type.as_str(), action_row.action.as_str()) {
-        ("post", "hide") => update_post_status(state, action_row.target_id, "hidden", action_row.id).await?,
-        ("post", "remove") => update_post_status(state, action_row.target_id, "removed", action_row.id).await?,
-        ("post", "restore") => update_post_status(state, action_row.target_id, "published", action_row.id).await?,
-        ("comment", "hide") => update_comment_status(state, action_row.target_id, "hidden", action_row.id).await?,
-        ("comment", "remove") => update_comment_status(state, action_row.target_id, "removed", action_row.id).await?,
-        ("comment", "restore") => update_comment_status(state, action_row.target_id, "published", action_row.id).await?,
-        ("report", "dismiss_report") => update_report_status(state, action_row.target_id, "dismissed", action_row.id).await?,
-        ("report", "mark_reviewed") => update_report_status(state, action_row.target_id, "reviewed", action_row.id).await?,
-        _ => return Err(AdminSocialError::BadRequest("unsupported moderation action".to_string())),
+        ("post", "hide") => {
+            update_post_status(state, action_row.target_id, "hidden", action_row.id).await?
+        }
+        ("post", "remove") => {
+            update_post_status(state, action_row.target_id, "removed", action_row.id).await?
+        }
+        ("post", "restore") => {
+            update_post_status(state, action_row.target_id, "published", action_row.id).await?
+        }
+        ("comment", "hide") => {
+            update_comment_status(state, action_row.target_id, "hidden", action_row.id).await?
+        }
+        ("comment", "remove") => {
+            update_comment_status(state, action_row.target_id, "removed", action_row.id).await?
+        }
+        ("comment", "restore") => {
+            update_comment_status(state, action_row.target_id, "published", action_row.id).await?
+        }
+        ("report", "dismiss_report") => {
+            update_report_status(state, action_row.target_id, "dismissed", action_row.id).await?
+        }
+        ("report", "mark_reviewed") => {
+            update_report_status(state, action_row.target_id, "reviewed", action_row.id).await?
+        }
+        _ => {
+            return Err(AdminSocialError::BadRequest(
+                "unsupported moderation action".to_string(),
+            ))
+        }
     }
 
     if let Some(report_id) = report_id {
@@ -593,7 +621,9 @@ fn normalize_optional_status(input: Option<&str>) -> Result<Option<String>, Admi
         .transpose()
 }
 
-fn normalize_optional_content_status(input: Option<&str>) -> Result<Option<String>, AdminSocialError> {
+fn normalize_optional_content_status(
+    input: Option<&str>,
+) -> Result<Option<String>, AdminSocialError> {
     input
         .map(|value| {
             let value = value.trim().to_ascii_lowercase();
@@ -656,7 +686,9 @@ fn validate_action_target_pair(target_type: &str, action: &str) -> Result<(), Ad
 fn clean_reason(input: Option<&str>) -> Result<String, AdminSocialError> {
     let value = input.unwrap_or("").trim();
     if value.chars().count() > 1000 {
-        return Err(AdminSocialError::BadRequest("reason is too long".to_string()));
+        return Err(AdminSocialError::BadRequest(
+            "reason is too long".to_string(),
+        ));
     }
     if value.chars().any(char::is_control) {
         return Err(AdminSocialError::BadRequest(

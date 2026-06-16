@@ -72,7 +72,10 @@ pub struct AdminAssignmentRow {
 }
 
 pub fn all_capabilities() -> Vec<String> {
-    SUPER_ADMIN_CAPABILITIES.iter().map(|value| value.to_string()).collect()
+    SUPER_ADMIN_CAPABILITIES
+        .iter()
+        .map(|value| value.to_string())
+        .collect()
 }
 
 pub fn allowed_capabilities_for_role(role: &str) -> Option<&'static [&'static str]> {
@@ -87,7 +90,9 @@ pub fn normalize_role(input: &str) -> Result<String, ApiError> {
     match input.trim() {
         "sub_admin" => Ok("sub_admin".to_string()),
         "moderator" => Ok("moderator".to_string()),
-        _ => Err(ApiError::BadRequest("admin role must be sub_admin or moderator".to_string())),
+        _ => Err(ApiError::BadRequest(
+            "admin role must be sub_admin or moderator".to_string(),
+        )),
     }
 }
 
@@ -101,7 +106,10 @@ pub fn normalize_capabilities(role: &str, input: &[String]) -> Result<Vec<String
         if capability.is_empty() {
             continue;
         }
-        if !allowed.iter().any(|allowed_item| allowed_item == &capability) {
+        if !allowed
+            .iter()
+            .any(|allowed_item| allowed_item == &capability)
+        {
             return Err(ApiError::BadRequest(format!(
                 "capability {capability} is not allowed for role {role}"
             )));
@@ -135,7 +143,11 @@ pub fn default_capabilities_for_role(role: &str) -> Result<Vec<String>, ApiError
             "content_read",
             "media_review",
         ],
-        _ => return Err(ApiError::BadRequest("admin role is not assignable".to_string())),
+        _ => {
+            return Err(ApiError::BadRequest(
+                "admin role is not assignable".to_string(),
+            ))
+        }
     };
     Ok(defaults.iter().map(|value| value.to_string()).collect())
 }
@@ -188,7 +200,10 @@ pub async fn authorize_admin_manage(
     authorize_with_capability(state, headers, "admin_manage").await
 }
 
-pub fn authorize_super_admin_only(state: &AppState, headers: &HeaderMap) -> Result<AdminContext, ApiError> {
+pub fn authorize_super_admin_only(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AdminContext, ApiError> {
     authorize_super_admin_token(state, headers)?.ok_or(ApiError::Unauthorized)
 }
 
@@ -199,7 +214,10 @@ fn authorize_super_admin_token(
     let Some(configured) = state.config.admin_token.as_deref() else {
         return Ok(None);
     };
-    let Some(supplied) = headers.get(ADMIN_HEADER).and_then(|value| value.to_str().ok()) else {
+    let Some(supplied) = headers
+        .get(ADMIN_HEADER)
+        .and_then(|value| value.to_str().ok())
+    else {
         return Ok(None);
     };
 

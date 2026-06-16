@@ -9,11 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    ai_runtime,
-    auth::session::require_current_user,
-    error::ApiError,
-    moderation,
-    state::AppState,
+    ai_runtime, auth::session::require_current_user, error::ApiError, moderation, state::AppState,
 };
 
 #[derive(Serialize)]
@@ -51,10 +47,7 @@ async fn scope() -> Json<ScopeResponse> {
         module: module_path!(),
         phase: "local-learner-assistant-foundation",
         provider_mode: "local_only_by_default",
-        routes: vec![
-            "GET /v1/ai/scope",
-            "POST /v1/ai/user-assistant/chat",
-        ],
+        routes: vec!["GET /v1/ai/scope", "POST /v1/ai/user-assistant/chat"],
         safeguards: vec![
             "requires authenticated learner session",
             "uses adaptive ai_user_chat rate limit",
@@ -100,7 +93,9 @@ async fn user_assistant_chat(
 
     let provider = ai_runtime::provider(&state, "ollama_local")
         .await?
-        .ok_or_else(|| ApiError::ServiceUnavailable("local AI provider is not configured".to_string()))?;
+        .ok_or_else(|| {
+            ApiError::ServiceUnavailable("local AI provider is not configured".to_string())
+        })?;
 
     let context = payload.context.unwrap_or(Value::Null);
     let system_prompt = r#"You are Karyra Spark's local learner assistant. Help users understand lessons, Cairo, Starknet, wallet safety, and platform navigation. Keep responses practical, friendly, and beginner-safe. Do not provide financial advice, trading calls, promotion, private key handling, harmful instructions, or unsafe content. If the user asks for something outside the learning and safety scope, refuse briefly and redirect to learning."#;
@@ -137,7 +132,9 @@ fn clean_message(input: &str) -> Result<String, ApiError> {
         return Err(ApiError::BadRequest("message is too long".to_string()));
     }
     if value.chars().any(char::is_control) {
-        return Err(ApiError::BadRequest("message cannot contain control characters".to_string()));
+        return Err(ApiError::BadRequest(
+            "message cannot contain control characters".to_string(),
+        ));
     }
     Ok(value.to_string())
 }

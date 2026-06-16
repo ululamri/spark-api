@@ -1,4 +1,9 @@
-use axum::{extract::State, http::HeaderMap, routing::{get, post}, Json, Router};
+use axum::{
+    extract::State,
+    http::HeaderMap,
+    routing::{get, post},
+    Json, Router,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -175,11 +180,15 @@ async fn set_avatar(
 
     if !exists {
         return Err(ApiError::BadRequest(
-            "avatar media asset must be an uploaded public image owned by the current user".to_string(),
+            "avatar media asset must be an uploaded public image owned by the current user"
+                .to_string(),
         ));
     }
 
-    let avatar_url = Some(format!("{PUBLIC_MEDIA_BASE_PATH}/{}", payload.media_asset_id));
+    let avatar_url = Some(format!(
+        "{PUBLIC_MEDIA_BASE_PATH}/{}",
+        payload.media_asset_id
+    ));
     let row = upsert_profile(
         &state,
         user.id,

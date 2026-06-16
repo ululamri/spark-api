@@ -66,7 +66,9 @@ pub async fn ollama_chat(
     user_prompt: &str,
 ) -> Result<AiRunOutput, ApiError> {
     if !provider.enabled {
-        return Err(ApiError::ServiceUnavailable("local AI provider is disabled".to_string()));
+        return Err(ApiError::ServiceUnavailable(
+            "local AI provider is disabled".to_string(),
+        ));
     }
 
     let base_url = provider
@@ -102,7 +104,9 @@ pub async fn ollama_chat(
         }))
         .send()
         .await
-        .map_err(|error| ApiError::ServiceUnavailable(format!("local AI request failed: {error}")))?;
+        .map_err(|error| {
+            ApiError::ServiceUnavailable(format!("local AI request failed: {error}"))
+        })?;
 
     if !response.status().is_success() {
         return Err(ApiError::ServiceUnavailable(format!(
@@ -111,12 +115,12 @@ pub async fn ollama_chat(
         )));
     }
 
-    let raw: Value = response
-        .json()
-        .await
-        .map_err(|_| ApiError::ServiceUnavailable("local AI response was not valid JSON".to_string()))?;
-    let parsed: OllamaChatResponse = serde_json::from_value(raw.clone())
-        .map_err(|_| ApiError::ServiceUnavailable("local AI response shape was not recognized".to_string()))?;
+    let raw: Value = response.json().await.map_err(|_| {
+        ApiError::ServiceUnavailable("local AI response was not valid JSON".to_string())
+    })?;
+    let parsed: OllamaChatResponse = serde_json::from_value(raw.clone()).map_err(|_| {
+        ApiError::ServiceUnavailable("local AI response shape was not recognized".to_string())
+    })?;
     let content = parsed
         .message
         .map(|message| message.content)
@@ -174,13 +178,13 @@ pub async fn openai_moderate_text(
     text: &str,
 ) -> Result<AiRunOutput, ApiError> {
     if !provider.enabled {
-        return Err(ApiError::ServiceUnavailable("external moderation provider is disabled".to_string()));
+        return Err(ApiError::ServiceUnavailable(
+            "external moderation provider is disabled".to_string(),
+        ));
     }
-    let api_key = state
-        .config
-        .openai_api_key
-        .as_deref()
-        .ok_or_else(|| ApiError::ServiceUnavailable("OPENAI_API_KEY is not configured".to_string()))?;
+    let api_key = state.config.openai_api_key.as_deref().ok_or_else(|| {
+        ApiError::ServiceUnavailable("OPENAI_API_KEY is not configured".to_string())
+    })?;
     let model = provider
         .model
         .as_deref()
@@ -201,7 +205,9 @@ pub async fn openai_moderate_text(
         .json(&json!({"model": &model, "input": text}))
         .send()
         .await
-        .map_err(|error| ApiError::ServiceUnavailable(format!("external moderation request failed: {error}")))?;
+        .map_err(|error| {
+            ApiError::ServiceUnavailable(format!("external moderation request failed: {error}"))
+        })?;
 
     if !response.status().is_success() {
         return Err(ApiError::ServiceUnavailable(format!(
@@ -210,10 +216,9 @@ pub async fn openai_moderate_text(
         )));
     }
 
-    let raw: Value = response
-        .json()
-        .await
-        .map_err(|_| ApiError::ServiceUnavailable("external moderation response was not valid JSON".to_string()))?;
+    let raw: Value = response.json().await.map_err(|_| {
+        ApiError::ServiceUnavailable("external moderation response was not valid JSON".to_string())
+    })?;
     let latency_ms = Utc::now()
         .signed_duration_since(started)
         .num_milliseconds()
@@ -224,27 +229,41 @@ pub async fn openai_moderate_text(
         .and_then(|items| items.first())
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let flagged = result.get("flagged").and_then(|value| value.as_bool()).unwrap_or(false);
+    let flagged = result
+        .get("flagged")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     let categories = result
         .get("categories")
         .and_then(|value| value.as_object())
         .map(|object| {
             object
                 .iter()
-                .filter_map(|(key, value)| value.as_bool().filter(|flag| *flag).map(|_| key.clone()))
+                .filter_map(|(key, value)| {
+                    value.as_bool().filter(|flag| *flag).map(|_| key.clone())
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
     let score = result
         .get("category_scores")
         .and_then(|value| value.as_object())
-        .and_then(|object| object.values().filter_map(|value| value.as_f64()).max_by(|a, b| a.total_cmp(b)))
+        .and_then(|object| {
+            object
+                .values()
+                .filter_map(|value| value.as_f64())
+                .max_by(|a, b| a.total_cmp(b))
+        })
         .unwrap_or(if flagged { 0.85 } else { 0.0 }) as f32;
 
     Ok(AiRunOutput {
         provider: provider.provider.clone(),
         model,
-        decision: if flagged { "review".to_string() } else { "allow".to_string() },
+        decision: if flagged {
+            "review".to_string()
+        } else {
+            "allow".to_string()
+        },
         categories,
         score,
         summary: if flagged {
@@ -257,7 +276,12 @@ pub async fn openai_moderate_text(
     })
 }
 
-pub async fn log_model_run(state: &AppState, moderation_event_id: Option<Uuid>, output: &AiRunOutput, input_type: &str) -> Result<Uuid, ApiError> {
+pub async fn log_model_run(
+    state: &AppState,
+    moderation_event_id: Option<Uuid>,
+    output: &AiRunOutput,
+    input_type: &str,
+) -> Result<Uuid, ApiError> {
     let id = Uuid::new_v4();
     let score = format!("{:.5}", output.score.clamp(0.0, 1.0));
     sqlx::query(

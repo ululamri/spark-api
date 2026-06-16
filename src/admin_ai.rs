@@ -24,7 +24,11 @@ struct AdminEnvelope<T> {
 }
 
 fn success<T>(data: T) -> Json<AdminEnvelope<T>> {
-    Json(AdminEnvelope { ok: true, data, generated_at: Utc::now() })
+    Json(AdminEnvelope {
+        ok: true,
+        data,
+        generated_at: Utc::now(),
+    })
 }
 
 #[derive(Debug)]
@@ -51,21 +55,46 @@ struct AdminErrorBody {
 impl IntoResponse for AdminAiError {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
-            Self::NotConfigured => (StatusCode::SERVICE_UNAVAILABLE, "admin_not_configured", "Admin access is not configured.".to_string()),
-            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "admin_unauthorized", "Admin access is not authorized.".to_string()),
+            Self::NotConfigured => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "admin_not_configured",
+                "Admin access is not configured.".to_string(),
+            ),
+            Self::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "admin_unauthorized",
+                "Admin access is not authorized.".to_string(),
+            ),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, "admin_bad_request", message),
-            Self::Service(message) => (StatusCode::SERVICE_UNAVAILABLE, "admin_ai_unavailable", message),
+            Self::Service(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "admin_ai_unavailable",
+                message,
+            ),
             Self::Database(error) => {
                 tracing::error!(?error, "admin AI database operation failed");
-                (StatusCode::INTERNAL_SERVER_ERROR, "admin_internal_error", "The admin AI request could not be completed.".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "admin_internal_error",
+                    "The admin AI request could not be completed.".to_string(),
+                )
             }
         };
-        (status, Json(AdminErrorEnvelope { ok: false, error: AdminErrorBody { code, message } })).into_response()
+        (
+            status,
+            Json(AdminErrorEnvelope {
+                ok: false,
+                error: AdminErrorBody { code, message },
+            }),
+        )
+            .into_response()
     }
 }
 
 impl From<sqlx::Error> for AdminAiError {
-    fn from(value: sqlx::Error) -> Self { Self::Database(value) }
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
 }
 
 impl From<crate::error::ApiError> for AdminAiError {
@@ -89,7 +118,11 @@ pub fn router() -> Router<AppState> {
 }
 
 fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AdminAiError> {
-    let configured = state.config.admin_token.as_deref().ok_or(AdminAiError::NotConfigured)?;
+    let configured = state
+        .config
+        .admin_token
+        .as_deref()
+        .ok_or(AdminAiError::NotConfigured)?;
     let supplied = headers
         .get(ADMIN_HEADER)
         .and_then(|value| value.to_str().ok())
@@ -112,7 +145,10 @@ struct ScopeData {
     auto_action: bool,
 }
 
-async fn scope(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<AdminEnvelope<ScopeData>>, AdminAiError> {
+async fn scope(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AdminEnvelope<ScopeData>>, AdminAiError> {
     authorize(&state, &headers)?;
     Ok(success(ScopeData {
         module: module_path!(),
@@ -162,7 +198,10 @@ struct SettingsData {
     guard_model_env: String,
 }
 
-async fn settings(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<AdminEnvelope<SettingsData>>, AdminAiError> {
+async fn settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AdminEnvelope<SettingsData>>, AdminAiError> {
     authorize(&state, &headers)?;
     Ok(success(fetch_settings(&state).await?))
 }
@@ -269,13 +308,16 @@ async fn update_provider(state: &AppState, patch: ProviderPatch) -> Result<(), A
 
 async fn update_assistant(state: &AppState, patch: AssistantPatch) -> Result<(), AdminAiError> {
     let key = normalize_assistant_key(&patch.key)?;
-    let locked = sqlx::query_scalar::<_, bool>("select locked from ai_assistant_settings where key = $1")
-        .bind(&key)
-        .fetch_optional(&state.db)
-        .await?
-        .unwrap_or(false);
+    let locked =
+        sqlx::query_scalar::<_, bool>("select locked from ai_assistant_settings where key = $1")
+            .bind(&key)
+            .fetch_optional(&state.db)
+            .await?
+            .unwrap_or(false);
     if locked {
-        return Err(AdminAiError::BadRequest("locked assistant setting cannot be changed".to_string()));
+        return Err(AdminAiError::BadRequest(
+            "locked assistant setting cannot be changed".to_string(),
+        ));
     }
     sqlx::query(
         r#"
@@ -384,7 +426,8 @@ async fn moderate_text(
         match ai_runtime::provider(&state, "openai_moderation").await? {
             Some(provider) if provider.enabled => {
                 let output = ai_runtime::openai_moderate_text(&state, &provider, &text).await?;
-                ai_runtime::log_model_run(&state, Some(moderation_event_id), &output, "text").await?;
+                ai_runtime::log_model_run(&state, Some(moderation_event_id), &output, "text")
+                    .await?;
                 Some(AiRunData::from(output))
             }
             _ => None,
@@ -394,7 +437,8 @@ async fn moderate_text(
     };
 
     let final_decision = choose_decision(&rule, local_ai.as_ref(), external_ai.as_ref());
-    let final_categories = merge_categories(&rule.categories, local_ai.as_ref(), external_ai.as_ref());
+    let final_categories =
+        merge_categories(&rule.categories, local_ai.as_ref(), external_ai.as_ref());
     let final_score = [
         Some(score),
         local_ai.as_ref().map(|item| item.score),
@@ -452,7 +496,11 @@ fn should_use_external(rule: &moderation::ModerationOutcome, local_ai: Option<&A
     }
 }
 
-fn choose_decision(rule: &moderation::ModerationOutcome, local_ai: Option<&AiRunData>, external_ai: Option<&AiRunData>) -> String {
+fn choose_decision(
+    rule: &moderation::ModerationOutcome,
+    local_ai: Option<&AiRunData>,
+    external_ai: Option<&AiRunData>,
+) -> String {
     let mut decision = rule.decision.to_string();
     for item in [local_ai, external_ai].into_iter().flatten() {
         decision = max_decision(&decision, &item.decision).to_string();
@@ -461,14 +509,28 @@ fn choose_decision(rule: &moderation::ModerationOutcome, local_ai: Option<&AiRun
 }
 
 fn max_decision<'a>(current: &'a str, next: &'a str) -> &'a str {
-    if decision_rank(next) > decision_rank(current) { next } else { current }
+    if decision_rank(next) > decision_rank(current) {
+        next
+    } else {
+        current
+    }
 }
 
 fn decision_rank(value: &str) -> i32 {
-    match value { "allow" => 0, "review" => 1, "restrict" => 2, "block" => 3, _ => 1 }
+    match value {
+        "allow" => 0,
+        "review" => 1,
+        "restrict" => 2,
+        "block" => 3,
+        _ => 1,
+    }
 }
 
-fn merge_categories(rule_categories: &[String], local_ai: Option<&AiRunData>, external_ai: Option<&AiRunData>) -> Vec<String> {
+fn merge_categories(
+    rule_categories: &[String],
+    local_ai: Option<&AiRunData>,
+    external_ai: Option<&AiRunData>,
+) -> Vec<String> {
     let mut output = Vec::<String>::new();
     for category in rule_categories {
         push_unique(&mut output, category);
@@ -496,22 +558,30 @@ fn clean_text(input: &str) -> Result<String, AdminAiError> {
         return Err(AdminAiError::BadRequest("text is too long".to_string()));
     }
     if value.chars().any(char::is_control) {
-        return Err(AdminAiError::BadRequest("text cannot contain control characters".to_string()));
+        return Err(AdminAiError::BadRequest(
+            "text cannot contain control characters".to_string(),
+        ));
     }
     Ok(value.to_string())
 }
 
 fn clean_optional(input: Option<String>, max: usize) -> Result<Option<String>, AdminAiError> {
-    let Some(value) = input else { return Ok(None); };
+    let Some(value) = input else {
+        return Ok(None);
+    };
     let value = value.trim().to_string();
     if value.is_empty() {
         return Ok(None);
     }
     if value.chars().count() > max {
-        return Err(AdminAiError::BadRequest("setting value is too long".to_string()));
+        return Err(AdminAiError::BadRequest(
+            "setting value is too long".to_string(),
+        ));
     }
     if value.chars().any(char::is_control) {
-        return Err(AdminAiError::BadRequest("setting value cannot contain control characters".to_string()));
+        return Err(AdminAiError::BadRequest(
+            "setting value cannot contain control characters".to_string(),
+        ));
     }
     Ok(Some(value))
 }
@@ -519,21 +589,29 @@ fn clean_optional(input: Option<String>, max: usize) -> Result<Option<String>, A
 fn normalize_provider(input: &str) -> Result<String, AdminAiError> {
     match input.trim() {
         "ollama_local" | "openai_moderation" | "hive_moderation" => Ok(input.trim().to_string()),
-        _ => Err(AdminAiError::BadRequest("provider is not supported".to_string())),
+        _ => Err(AdminAiError::BadRequest(
+            "provider is not supported".to_string(),
+        )),
     }
 }
 
 fn normalize_mode(input: &str) -> Result<String, AdminAiError> {
     match input.trim() {
-        "user_assistant" | "admin_only" | "moderation_only" | "disabled" => Ok(input.trim().to_string()),
-        _ => Err(AdminAiError::BadRequest("provider mode is not supported".to_string())),
+        "user_assistant" | "admin_only" | "moderation_only" | "disabled" => {
+            Ok(input.trim().to_string())
+        }
+        _ => Err(AdminAiError::BadRequest(
+            "provider mode is not supported".to_string(),
+        )),
     }
 }
 
 fn normalize_assistant_key(input: &str) -> Result<String, AdminAiError> {
     match input.trim() {
         "user_assistant" | "admin_moderation_assistant" => Ok(input.trim().to_string()),
-        _ => Err(AdminAiError::BadRequest("assistant setting is not supported".to_string())),
+        _ => Err(AdminAiError::BadRequest(
+            "assistant setting is not supported".to_string(),
+        )),
     }
 }
 
@@ -546,6 +624,8 @@ fn normalize_target_type(input: &str) -> Result<&'static str, AdminAiError> {
         "avatar" => Ok("avatar"),
         "assistant_message" => Ok("assistant_message"),
         "system" => Ok("system"),
-        _ => Err(AdminAiError::BadRequest("target_type is not supported".to_string())),
+        _ => Err(AdminAiError::BadRequest(
+            "target_type is not supported".to_string(),
+        )),
     }
 }
