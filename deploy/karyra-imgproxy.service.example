@@ -1,21 +1,17 @@
 [Unit]
-Description=Karyra Spark imgproxy media optimizer
-After=network-online.target
+Description=Karyra Spark imgproxy media optimizer container
 Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
-User=imgproxy
-Group=imgproxy
 EnvironmentFile=/etc/karyra/imgproxy.env
-ExecStart=/usr/local/bin/imgproxy
+ExecStartPre=-/usr/bin/podman rm -f karyra-imgproxy
+ExecStart=/usr/bin/podman run --name karyra-imgproxy --rm --env-file /etc/karyra/imgproxy.env -p 127.0.0.1:8088:8080 ghcr.io/imgproxy/imgproxy:latest-amd64
+ExecStop=/usr/bin/podman stop -t 10 karyra-imgproxy
 Restart=always
 RestartSec=3
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/tmp
+TimeoutStartSec=60
 
 [Install]
 WantedBy=multi-user.target
