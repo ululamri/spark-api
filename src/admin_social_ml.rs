@@ -427,8 +427,8 @@ async fn scan_batch(
         &actor.capabilities,
         "ML moderation batch scan completed without automatic content action.",
         json!({
-            "target_type": target_type,
-            "status_filter": status_filter,
+            "target_type": &target_type,
+            "status_filter": &status_filter,
             "scanned_count": scanned_count,
             "auto_action": false,
         }),
@@ -505,9 +505,9 @@ async fn mark_signal_reviewed(
         "ML moderation signal was marked reviewed by a human operator.",
         json!({
             "signal_id": signal.id,
-            "status": signal.status,
-            "decision": signal.decision,
-            "note": note,
+            "status": &signal.status,
+            "decision": &signal.decision,
+            "note": &note,
             "auto_action": false,
         }),
     )
@@ -621,13 +621,13 @@ async fn scan_one(
         "ML moderation signal was created without automatic content action.",
         json!({
             "signal_id": signal.id,
-            "signal_status": signal.status,
-            "decision": signal.decision,
+            "signal_status": &signal.status,
+            "decision": &signal.decision,
             "score": signal.score,
-            "categories": signal.categories,
-            "source": signal.source,
-            "target_content_status": target.status,
-            "provider_errors": provider_errors,
+            "categories": &signal.categories,
+            "source": &signal.source,
+            "target_content_status": &target.status,
+            "provider_errors": &provider_errors,
             "auto_action": false,
         }),
     )
@@ -911,7 +911,7 @@ async fn insert_signal(
     .bind(&actor.actor_kind)
     .bind(actor.actor_user_id)
     .bind(json!({
-        "target_content_status": target.status,
+        "target_content_status": &target.status,
         "local_ai": local_ai,
         "external_ai": external_ai,
         "provider_errors": provider_errors,
