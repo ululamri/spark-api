@@ -11,8 +11,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -21,6 +22,12 @@ use crate::{error::ApiError, state::AppState};
 
 const MIN_PASSWORD_LEN: usize = 8;
 const MAX_PASSWORD_LEN: usize = 128;
+const LOGIN_EMAIL_MAX_ATTEMPTS: i32 = 8;
+const LOGIN_CLIENT_MAX_ATTEMPTS: i32 = 40;
+const REGISTER_EMAIL_MAX_ATTEMPTS: i32 = 3;
+const REGISTER_CLIENT_MAX_ATTEMPTS: i32 = 20;
+const AUTH_WINDOW_SECONDS: i32 = 15 * 60;
+const REGISTER_EMAIL_WINDOW_SECONDS: i32 = 60 * 60;
 
 #[derive(Serialize)]
 struct ScopeResponse {
@@ -75,6 +82,12 @@ struct AuthUserRow {
     handle: Option<String>,
 }
 
+#[derive(Debug, FromRow)]
+struct RateLimitRow {
+    attempt_count: i32,
+    window_expires_at: DateTime<Utc>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/scope", get(scope))
@@ -87,7 +100,7 @@ pub fn router() -> Router<AppState> {
 async fn scope() -> Json<ScopeResponse> {
     Json(ScopeResponse {
         module: module_path!(),
-        phase: "auth-backend-foundation",
+        phase: "auth-registration-readiness-hardening",
         implemented_now: vec![
             "user-registration",
             "password-hashing-argon2",
@@ -95,23 +108,42 @@ async fn scope() -> Json<ScopeResponse> {
             "httponly-cookie-session",
             "current-user-endpoint",
             "logout-session-revocation",
+            "email-and-client-bucket-rate-limiting",
         ],
         next_backend_steps: vec![
             "email-verification",
-            "rate-limiting",
             "password-reset",
-            "role-policy",
-            "frontend-session-hydration",
+            "role-policy-review",
+            "frontend-session-hydration-qa",
         ],
     })
 }
 
 async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Response, ApiError> {
     let email = normalize_email(&payload.email)?;
     validate_password(&payload.password)?;
+    enforce_auth_rate_limit(
+        &state,
+        "auth_register_email",
+        &format!("email:{email}"),
+        REGISTER_EMAIL_MAX_ATTEMPTS,
+        REGISTER_EMAIL_WINDOW_SECONDS,
+    )
+    .await?;
+    if let Some(identity) = client_rate_identity(&headers) {
+        enforce_auth_rate_limit(
+            &state,
+            "auth_register_client",
+            &identity,
+            REGISTER_CLIENT_MAX_ATTEMPTS,
+            AUTH_WINDOW_SECONDS,
+        )
+        .await?;
+    }
 
     let exists: Option<(Uuid,)> =
         sqlx::query_as("select id from users where lower(email) = lower($1)")
@@ -165,9 +197,28 @@ async fn register(
 
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
     let email = normalize_email(&payload.email)?;
+    enforce_auth_rate_limit(
+        &state,
+        "auth_login_email",
+        &format!("email:{email}"),
+        LOGIN_EMAIL_MAX_ATTEMPTS,
+        AUTH_WINDOW_SECONDS,
+    )
+    .await?;
+    if let Some(identity) = client_rate_identity(&headers) {
+        enforce_auth_rate_limit(
+            &state,
+            "auth_login_client",
+            &identity,
+            LOGIN_CLIENT_MAX_ATTEMPTS,
+            AUTH_WINDOW_SECONDS,
+        )
+        .await?;
+    }
 
     let user = sqlx::query_as::<_, LoginUserRow>(
         r#"
@@ -289,6 +340,51 @@ async fn create_session(state: &AppState, user_id: Uuid) -> Result<String, ApiEr
     Ok(session_token)
 }
 
+async fn enforce_auth_rate_limit(
+    state: &AppState,
+    bucket: &str,
+    key: &str,
+    max_attempts: i32,
+    window_seconds: i32,
+) -> Result<(), ApiError> {
+    let key_hash = hash_rate_key(key);
+    let row = sqlx::query_as::<_, RateLimitRow>(
+        r#"
+        insert into auth_rate_limits (
+          bucket, key_hash, attempt_count, window_expires_at, metadata
+        ) values ($1, $2, 1, now() + ($3::int * interval '1 second'), $4)
+        on conflict (bucket, key_hash)
+        do update set
+          attempt_count = case
+            when auth_rate_limits.window_expires_at <= now() then 1
+            else auth_rate_limits.attempt_count + 1
+          end,
+          window_expires_at = case
+            when auth_rate_limits.window_expires_at <= now() then now() + ($3::int * interval '1 second')
+            else auth_rate_limits.window_expires_at
+          end,
+          last_seen_at = now(),
+          metadata = excluded.metadata
+        returning attempt_count, window_expires_at
+        "#,
+    )
+    .bind(bucket)
+    .bind(key_hash)
+    .bind(window_seconds)
+    .bind(json!({"window_seconds": window_seconds, "max_attempts": max_attempts}))
+    .fetch_one(&state.db)
+    .await?;
+
+    if row.attempt_count > max_attempts {
+        return Err(ApiError::RateLimited(format!(
+            "too many auth attempts; try again after {}",
+            row.window_expires_at.to_rfc3339()
+        )));
+    }
+
+    Ok(())
+}
+
 fn auth_response(
     status: StatusCode,
     state: &AppState,
@@ -380,6 +476,31 @@ fn hash_session_token(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn hash_rate_key(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn client_rate_identity(headers: &HeaderMap) -> Option<String> {
+    for name in ["cf-connecting-ip", "x-real-ip", "x-forwarded-for"] {
+        if let Some(value) = headers.get(name).and_then(|value| value.to_str().ok()) {
+            let candidate = value
+                .split(',')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .chars()
+                .take(96)
+                .collect::<String>();
+            if !candidate.is_empty() {
+                return Some(format!("client:{candidate}"));
+            }
+        }
+    }
+    None
 }
 
 fn read_session_cookie(headers: &HeaderMap, cookie_name: &str) -> Result<String, ApiError> {
