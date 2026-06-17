@@ -68,7 +68,7 @@ async fn scope(
             "POST /api/admin/team/members/:user_id/revoke",
         ],
         auth_model:
-            "super-admin token bootstrap plus session-based sub-admin/moderator assignments",
+            "superadmin token bootstrap plus session-backed admin/moderator role assignments",
     }))
 }
 
@@ -123,7 +123,7 @@ async fn members(
                u.email,
                coalesce(nullif(p.display_name, ''), split_part(u.email, '@', 1), 'Pengguna Spark') as display_name,
                p.handle,
-               ara.role,
+               case when ara.role = 'sub_admin' then 'admin' else ara.role end as role,
                ara.capabilities,
                ara.status,
                ara.reason,
@@ -134,7 +134,7 @@ async fn members(
         from admin_role_assignments ara
         join users u on u.id = ara.user_id
         left join profiles p on p.user_id = ara.user_id
-        where ($1::text is null or ara.role = $1)
+        where ($1::text is null or ara.role = $1 or ($1 = 'admin' and ara.role = 'sub_admin'))
           and ara.status = $2
           and ($2 <> 'active' or ara.revoked_at is null)
         order by ara.updated_at desc, ara.created_at desc
@@ -152,7 +152,7 @@ async fn members(
         r#"
         select count(*)
         from admin_role_assignments ara
-        where ($1::text is null or ara.role = $1)
+        where ($1::text is null or ara.role = $1 or ($1 = 'admin' and ara.role = 'sub_admin'))
           and ara.status = $2
           and ($2 <> 'active' or ara.revoked_at is null)
         "#,
@@ -269,7 +269,10 @@ async fn revoke_member(
             revoked_by_user_id = $3,
             reason = case when $4 = '' then reason else $4 end,
             updated_at = now()
-        where user_id = $1 and role = $2 and status = 'active' and revoked_at is null
+        where user_id = $1
+          and (role = $2 or ($2 = 'admin' and role = 'sub_admin'))
+          and status = 'active'
+          and revoked_at is null
         "#,
     )
     .bind(user_id)
@@ -346,7 +349,7 @@ async fn fetch_active_assignment(
                u.email,
                coalesce(nullif(p.display_name, ''), split_part(u.email, '@', 1), 'Pengguna Spark') as display_name,
                p.handle,
-               ara.role,
+               case when ara.role = 'sub_admin' then 'admin' else ara.role end as role,
                ara.capabilities,
                ara.status,
                ara.reason,
@@ -357,7 +360,13 @@ async fn fetch_active_assignment(
         from admin_role_assignments ara
         join users u on u.id = ara.user_id
         left join profiles p on p.user_id = ara.user_id
-        where ara.user_id = $1 and ara.role = $2 and ara.status = 'active' and ara.revoked_at is null
+        where ara.user_id = $1
+          and (ara.role = $2 or ($2 = 'admin' and ara.role = 'sub_admin'))
+          and ara.status = 'active'
+          and ara.revoked_at is null
+        order by case ara.role when 'admin' then 2 when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
+                 ara.updated_at desc
+        limit 1
         "#,
     )
     .bind(user_id)
@@ -394,25 +403,24 @@ fn clean_reason(input: Option<&str>) -> Result<String, ApiError> {
 fn role_catalog() -> Vec<RoleInfo> {
     vec![
         RoleInfo {
-            role: "super_admin",
-            description: "Bootstrap/developer-level admin controlled by the existing server token.",
+            role: "superadmin",
+            description: "Bootstrap/developer-level access controlled by the server admin token.",
             capabilities: admin_auth::SUPER_ADMIN_CAPABILITIES
                 .iter()
                 .map(|value| value.to_string())
                 .collect(),
         },
         RoleInfo {
-            role: "sub_admin",
-            description:
-                "Delegated admin role with configurable capabilities below super-admin level.",
-            capabilities: admin_auth::SUB_ADMIN_ALLOWED_CAPABILITIES
+            role: "admin",
+            description: "Operational admin role for CMS, moderation, bulk actions, and ML moderation workflows.",
+            capabilities: admin_auth::ADMIN_ALLOWED_CAPABILITIES
                 .iter()
                 .map(|value| value.to_string())
                 .collect(),
         },
         RoleInfo {
             role: "moderator",
-            description: "Moderation-focused role with configurable review/action capabilities.",
+            description: "Moderation-focused role for queue review, report handling, media review, and limited bulk actions.",
             capabilities: admin_auth::MODERATOR_ALLOWED_CAPABILITIES
                 .iter()
                 .map(|value| value.to_string())
