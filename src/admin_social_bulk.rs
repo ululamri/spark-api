@@ -342,7 +342,7 @@ async fn create_bulk_moderation_action(
             "applied_count": data.job.applied_count,
             "skipped_count": data.job.skipped_count,
             "failed_count": data.job.failed_count,
-            "idempotency_key": data.job.idempotency_key,
+            "idempotency_key": &data.job.idempotency_key,
         }),
     )
     .await?;
@@ -495,11 +495,11 @@ async fn process_bulk_target(
             "target_type": target_type,
             "target_id": target.target_id,
             "action": action,
-            "status": item.status,
-            "action_id": item.action_id,
-            "report_id": item.report_id,
+            "status": &item.status,
+            "action_id": &item.action_id,
+            "report_id": &item.report_id,
             "dry_run": dry_run,
-            "message": item.message,
+            "message": &item.message,
         }),
     )
     .await?;
