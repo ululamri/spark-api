@@ -8,13 +8,10 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::state::AppState;
-
-const ADMIN_HEADER: &str = "x-karyra-admin-token";
+use crate::{admin_auth, error::ApiError, state::AppState};
 
 #[derive(Serialize)]
 struct AdminEnvelope<T> {
@@ -38,6 +35,7 @@ enum AdminSocialError {
     BadRequest(String),
     NotFound(&'static str),
     Database(sqlx::Error),
+    Internal,
 }
 
 #[derive(Serialize)]
@@ -77,6 +75,11 @@ impl IntoResponse for AdminSocialError {
                     "The admin social request could not be completed.".to_string(),
                 )
             }
+            Self::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "admin_internal_error",
+                "The admin social request could not be completed.".to_string(),
+            ),
         };
 
         (
@@ -96,6 +99,20 @@ impl From<sqlx::Error> for AdminSocialError {
     }
 }
 
+impl From<ApiError> for AdminSocialError {
+    fn from(value: ApiError) -> Self {
+        match value {
+            ApiError::Unauthorized => Self::Unauthorized,
+            ApiError::BadRequest(message) => Self::BadRequest(message),
+            ApiError::ServiceUnavailable(_) => Self::NotConfigured,
+            error => {
+                tracing::error!(?error, "admin social authorization failed");
+                Self::Internal
+            }
+        }
+    }
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/scope", get(scope))
@@ -105,22 +122,12 @@ pub fn router() -> Router<AppState> {
         .route("/moderation-actions", post(create_moderation_action))
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AdminSocialError> {
-    let configured = state
-        .config
-        .admin_token
-        .as_deref()
-        .ok_or(AdminSocialError::NotConfigured)?;
-    let supplied = headers
-        .get(ADMIN_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .ok_or(AdminSocialError::Unauthorized)?;
-
-    if Sha256::digest(configured.as_bytes()) == Sha256::digest(supplied.as_bytes()) {
-        Ok(())
-    } else {
-        Err(AdminSocialError::Unauthorized)
-    }
+async fn authorize(
+    state: &AppState,
+    headers: &HeaderMap,
+    capability: &str,
+) -> Result<admin_auth::AdminContext, AdminSocialError> {
+    Ok(admin_auth::authorize_with_capability(state, headers, capability).await?)
 }
 
 #[derive(Serialize)]
@@ -130,16 +137,17 @@ struct ScopeData {
     routes: Vec<&'static str>,
     actions: Vec<&'static str>,
     data_source: &'static str,
+    auth_model: &'static str,
 }
 
 async fn scope(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<AdminEnvelope<ScopeData>>, AdminSocialError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers, "moderation_read").await?;
     Ok(success(ScopeData {
         module: module_path!(),
-        phase: "public-social-admin-moderation",
+        phase: "public-social-admin-moderation-rbac-audit",
         routes: vec![
             "GET /api/admin/social/reports",
             "GET /api/admin/social/posts",
@@ -154,6 +162,7 @@ async fn scope(
             "mark_reviewed",
         ],
         data_source: "database",
+        auth_model: "legacy superadmin root plus delegated admin/moderator capabilities",
     }))
 }
 
@@ -205,7 +214,7 @@ async fn reports(
     headers: HeaderMap,
     Query(query): Query<AdminSocialQuery>,
 ) -> Result<Json<AdminEnvelope<ListData<SocialReportItem>>>, AdminSocialError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers, "moderation_read").await?;
     let (limit, offset) = query.paging();
     let status = normalize_optional_status(query.status.as_deref())?;
     let target_type = normalize_optional_target_type(query.target_type.as_deref())?;
@@ -287,7 +296,7 @@ async fn posts(
     headers: HeaderMap,
     Query(query): Query<AdminSocialQuery>,
 ) -> Result<Json<AdminEnvelope<ListData<SocialPostAdminItem>>>, AdminSocialError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers, "moderation_read").await?;
     let (limit, offset) = query.paging();
     let status = normalize_optional_content_status(query.status.as_deref())?;
 
@@ -363,7 +372,7 @@ async fn comments(
     headers: HeaderMap,
     Query(query): Query<AdminSocialQuery>,
 ) -> Result<Json<AdminEnvelope<ListData<SocialCommentAdminItem>>>, AdminSocialError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers, "moderation_read").await?;
     let (limit, offset) = query.paging();
     let status = normalize_optional_content_status(query.status.as_deref())?;
 
@@ -444,10 +453,12 @@ async fn create_moderation_action(
     headers: HeaderMap,
     Json(payload): Json<ModerationActionRequest>,
 ) -> Result<(StatusCode, Json<AdminEnvelope<ModerationActionResponse>>), AdminSocialError> {
-    authorize(&state, &headers)?;
     let target_type = normalize_moderation_target_type(&payload.target_type)?;
     let action = normalize_moderation_action(&payload.action)?;
+    let capability = capability_for_moderation_action(&action);
+    let actor = authorize(&state, &headers, capability).await?;
     let reason = clean_reason(payload.reason.as_deref())?;
+    let report_id = payload.report_id;
     let action_payload = payload.payload.unwrap_or_else(|| json!({}));
     validate_action_target_pair(&target_type, &action)?;
 
@@ -456,20 +467,47 @@ async fn create_moderation_action(
         insert into social_moderation_actions (
           id, moderator_user_id, target_type, target_id, action, reason, payload
         )
-        values ($1, null, $2, $3, $4, $5, $6)
+        values ($1, $2, $3, $4, $5, $6, $7)
         returning id, moderator_user_id, target_type, target_id, action, reason, payload, created_at
         "#,
     )
     .bind(Uuid::new_v4())
+    .bind(actor.actor_user_id)
     .bind(&target_type)
     .bind(payload.target_id)
     .bind(&action)
     .bind(&reason)
-    .bind(action_payload)
+    .bind(json!({
+        "request": action_payload,
+        "actor_kind": actor.actor_kind,
+        "actor_role": actor.role,
+        "capability": capability
+    }))
     .fetch_one(&state.db)
     .await?;
 
-    apply_moderation_action(&state, &action_row, payload.report_id).await?;
+    apply_moderation_action(&state, &action_row, report_id, actor.actor_user_id).await?;
+
+    admin_auth::audit(
+        &state,
+        &actor,
+        "social_moderation_action",
+        &target_type,
+        actor.actor_user_id,
+        Some(payload.target_id),
+        &actor.capabilities,
+        "Social moderation action was applied.",
+        json!({
+            "action_id": action_row.id,
+            "action": action,
+            "target_type": target_type,
+            "target_id": payload.target_id,
+            "report_id": report_id,
+            "capability": capability,
+            "reason": reason,
+        }),
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, success(action_row)))
 }
@@ -478,6 +516,7 @@ async fn apply_moderation_action(
     state: &AppState,
     action_row: &ModerationActionResponse,
     report_id: Option<Uuid>,
+    actor_user_id: Option<Uuid>,
 ) -> Result<(), AdminSocialError> {
     match (action_row.target_type.as_str(), action_row.action.as_str()) {
         ("post", "hide") => {
@@ -499,10 +538,12 @@ async fn apply_moderation_action(
             update_comment_status(state, action_row.target_id, "published", action_row.id).await?
         }
         ("report", "dismiss_report") => {
-            update_report_status(state, action_row.target_id, "dismissed", action_row.id).await?
+            update_report_status(state, action_row.target_id, "dismissed", action_row.id, actor_user_id)
+                .await?
         }
         ("report", "mark_reviewed") => {
-            update_report_status(state, action_row.target_id, "reviewed", action_row.id).await?
+            update_report_status(state, action_row.target_id, "reviewed", action_row.id, actor_user_id)
+                .await?
         }
         _ => {
             return Err(AdminSocialError::BadRequest(
@@ -512,7 +553,7 @@ async fn apply_moderation_action(
     }
 
     if let Some(report_id) = report_id {
-        update_report_status(state, report_id, "actioned", action_row.id).await?;
+        update_report_status(state, report_id, "actioned", action_row.id, actor_user_id).await?;
     }
 
     Ok(())
@@ -583,12 +624,14 @@ async fn update_report_status(
     report_id: Uuid,
     status: &str,
     action_id: Uuid,
+    actor_user_id: Option<Uuid>,
 ) -> Result<(), AdminSocialError> {
     let result = sqlx::query(
         r#"
         update social_reports
         set status = $2,
             action_id = $3,
+            reviewed_by_user_id = coalesce(reviewed_by_user_id, $4),
             reviewed_at = coalesce(reviewed_at, now()),
             updated_at = now()
         where id = $1
@@ -597,6 +640,7 @@ async fn update_report_status(
     .bind(report_id)
     .bind(status)
     .bind(action_id)
+    .bind(actor_user_id)
     .execute(&state.db)
     .await?;
 
@@ -670,6 +714,14 @@ fn normalize_moderation_action(input: &str) -> Result<String, AdminSocialError> 
         _ => Err(AdminSocialError::BadRequest(
             "action must be hide, remove, restore, dismiss_report, or mark_reviewed".to_string(),
         )),
+    }
+}
+
+fn capability_for_moderation_action(action: &str) -> &'static str {
+    match action {
+        "restore" => "moderation_restore",
+        "dismiss_report" | "mark_reviewed" => "reports_manage",
+        _ => "moderation_action",
     }
 }
 
