@@ -76,7 +76,7 @@ insert into admin_audit_events (
   id, actor_kind, actor_user_id, action, target_type, target_user_id,
   target_id, capabilities, summary, metadata
 )
-select gen_random_uuid(),
+select md5(promoted.id::text || promoted.user_id::text || clock_timestamp()::text)::uuid,
        'system_migration',
        null,
        'admin_role_auto_promote_superadmin',
