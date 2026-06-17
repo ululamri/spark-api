@@ -104,6 +104,7 @@ pub fn canonical_role(role: &str) -> String {
 
 pub fn allowed_capabilities_for_role(role: &str) -> Option<&'static [&'static str]> {
     match role.trim() {
+        "superadmin" | "super_admin" => Some(SUPER_ADMIN_CAPABILITIES),
         "admin" | "sub_admin" => Some(ADMIN_ALLOWED_CAPABILITIES),
         "moderator" => Some(MODERATOR_ALLOWED_CAPABILITIES),
         _ => None,
@@ -112,10 +113,11 @@ pub fn allowed_capabilities_for_role(role: &str) -> Option<&'static [&'static st
 
 pub fn normalize_role(input: &str) -> Result<String, ApiError> {
     match input.trim() {
+        "superadmin" | "super_admin" => Ok("superadmin".to_string()),
         "admin" | "sub_admin" => Ok("admin".to_string()),
         "moderator" => Ok("moderator".to_string()),
         _ => Err(ApiError::BadRequest(
-            "admin role must be admin or moderator".to_string(),
+            "admin role must be superadmin, admin, or moderator".to_string(),
         )),
     }
 }
@@ -152,6 +154,7 @@ pub fn normalize_capabilities(role: &str, input: &[String]) -> Result<Vec<String
 
 pub fn default_capabilities_for_role(role: &str) -> Result<Vec<String>, ApiError> {
     let defaults: &[&str] = match role.trim() {
+        "superadmin" | "super_admin" => SUPER_ADMIN_CAPABILITIES,
         "admin" | "sub_admin" => &[
             "moderation_read",
             "moderation_action",
@@ -202,7 +205,7 @@ pub async fn authorize_with_capability(
           and revoked_at is null
           and starts_at <= now()
           and (expires_at is null or expires_at > now())
-        order by case role when 'admin' then 2 when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
+        order by case role when 'superadmin' then 3 when 'admin' then 2 when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
                  updated_at desc
         limit 1
         "#,
