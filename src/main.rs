@@ -1,5 +1,6 @@
 mod admin;
 mod admin_ai;
+mod admin_audit;
 mod admin_auth;
 mod admin_cms;
 mod admin_social;
