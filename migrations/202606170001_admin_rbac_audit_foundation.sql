@@ -5,7 +5,7 @@
 create table if not exists admin_role_assignments (
   id uuid primary key,
   user_id uuid not null references users(id) on delete cascade,
-  role text not null check (role in ('admin', 'sub_admin', 'moderator')),
+  role text not null check (role in ('superadmin', 'admin', 'sub_admin', 'moderator')),
   capabilities text[] not null default '{}',
   status text not null default 'active' check (status in ('active', 'revoked', 'expired')),
   granted_by_user_id uuid references users(id) on delete set null,
