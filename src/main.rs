@@ -3,6 +3,7 @@ mod admin_ai;
 mod admin_auth;
 mod admin_cms;
 mod admin_social;
+mod admin_social_bulk;
 mod admin_team;
 mod ai;
 mod ai_runtime;
