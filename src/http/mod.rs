@@ -39,6 +39,7 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         .nest("/api/admin/ai", crate::admin_ai::router())
         .nest("/api/admin/cms", crate::admin_cms::router())
         .nest("/api/admin/team", crate::admin_team::router())
+        .nest("/api/admin/social/bulk", crate::admin_social_bulk::router())
         .nest("/api/admin/social", crate::admin_social::router())
         .nest("/api/admin", crate::admin::router())
         .layer(cors_layer(config))
