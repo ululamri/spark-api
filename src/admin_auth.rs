@@ -255,7 +255,7 @@ fn authorize_super_admin_token(
 
     if Sha256::digest(configured.as_bytes()) == Sha256::digest(supplied.as_bytes()) {
         Ok(Some(AdminContext {
-            actor_kind: "superadmin_token".to_string(),
+            actor_kind: "super_admin_token".to_string(),
             actor_user_id: None,
             role: "superadmin".to_string(),
             capabilities: all_capabilities(),
