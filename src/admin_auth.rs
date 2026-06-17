@@ -14,32 +14,48 @@ pub const SUPER_ADMIN_CAPABILITIES: &[&str] = &[
     "admin_manage",
     "policy_manage",
     "ai_manage",
+    "ml_moderation_manage",
     "moderation_read",
     "moderation_action",
     "moderation_restore",
+    "moderation_bulk",
     "user_safety_manage",
     "reports_manage",
     "content_read",
+    "content_create",
+    "content_edit",
+    "content_publish",
+    "content_archive",
     "media_review",
     "audit_read",
 ];
 
-pub const SUB_ADMIN_ALLOWED_CAPABILITIES: &[&str] = &[
+pub const ADMIN_ALLOWED_CAPABILITIES: &[&str] = &[
     "policy_manage",
     "ai_manage",
+    "ml_moderation_manage",
     "moderation_read",
     "moderation_action",
     "moderation_restore",
+    "moderation_bulk",
     "user_safety_manage",
     "reports_manage",
     "content_read",
+    "content_create",
+    "content_edit",
+    "content_publish",
+    "content_archive",
     "media_review",
     "audit_read",
 ];
+
+// Kept as a compatibility alias for older rows/API clients that used `sub_admin`.
+pub const SUB_ADMIN_ALLOWED_CAPABILITIES: &[&str] = ADMIN_ALLOWED_CAPABILITIES;
 
 pub const MODERATOR_ALLOWED_CAPABILITIES: &[&str] = &[
     "moderation_read",
     "moderation_action",
+    "moderation_bulk",
     "reports_manage",
     "content_read",
     "media_review",
@@ -78,9 +94,17 @@ pub fn all_capabilities() -> Vec<String> {
         .collect()
 }
 
+pub fn canonical_role(role: &str) -> String {
+    match role.trim() {
+        "sub_admin" => "admin".to_string(),
+        "super_admin" => "superadmin".to_string(),
+        value => value.to_string(),
+    }
+}
+
 pub fn allowed_capabilities_for_role(role: &str) -> Option<&'static [&'static str]> {
-    match role {
-        "sub_admin" => Some(SUB_ADMIN_ALLOWED_CAPABILITIES),
+    match role.trim() {
+        "admin" | "sub_admin" => Some(ADMIN_ALLOWED_CAPABILITIES),
         "moderator" => Some(MODERATOR_ALLOWED_CAPABILITIES),
         _ => None,
     }
@@ -88,10 +112,10 @@ pub fn allowed_capabilities_for_role(role: &str) -> Option<&'static [&'static st
 
 pub fn normalize_role(input: &str) -> Result<String, ApiError> {
     match input.trim() {
-        "sub_admin" => Ok("sub_admin".to_string()),
+        "admin" | "sub_admin" => Ok("admin".to_string()),
         "moderator" => Ok("moderator".to_string()),
         _ => Err(ApiError::BadRequest(
-            "admin role must be sub_admin or moderator".to_string(),
+            "admin role must be admin or moderator".to_string(),
         )),
     }
 }
@@ -127,18 +151,25 @@ pub fn normalize_capabilities(role: &str, input: &[String]) -> Result<Vec<String
 }
 
 pub fn default_capabilities_for_role(role: &str) -> Result<Vec<String>, ApiError> {
-    let defaults: &[&str] = match role {
-        "sub_admin" => &[
+    let defaults: &[&str] = match role.trim() {
+        "admin" | "sub_admin" => &[
             "moderation_read",
             "moderation_action",
+            "moderation_restore",
+            "moderation_bulk",
             "reports_manage",
             "content_read",
+            "content_create",
+            "content_edit",
+            "content_publish",
+            "content_archive",
             "media_review",
             "audit_read",
         ],
         "moderator" => &[
             "moderation_read",
             "moderation_action",
+            "moderation_bulk",
             "reports_manage",
             "content_read",
             "media_review",
@@ -171,7 +202,7 @@ pub async fn authorize_with_capability(
           and revoked_at is null
           and starts_at <= now()
           and (expires_at is null or expires_at > now())
-        order by case role when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
+        order by case role when 'admin' then 2 when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
                  updated_at desc
         limit 1
         "#,
@@ -185,10 +216,11 @@ pub async fn authorize_with_capability(
         return Err(ApiError::Unauthorized);
     }
 
+    let role = canonical_role(&row.role);
     Ok(AdminContext {
-        actor_kind: row.role.clone(),
+        actor_kind: role.clone(),
         actor_user_id: Some(user.id),
-        role: row.role,
+        role,
         capabilities: row.capabilities,
     })
 }
@@ -223,9 +255,9 @@ fn authorize_super_admin_token(
 
     if Sha256::digest(configured.as_bytes()) == Sha256::digest(supplied.as_bytes()) {
         Ok(Some(AdminContext {
-            actor_kind: "super_admin_token".to_string(),
+            actor_kind: "superadmin_token".to_string(),
             actor_user_id: None,
-            role: "super_admin".to_string(),
+            role: "superadmin".to_string(),
             capabilities: all_capabilities(),
         }))
     } else {
