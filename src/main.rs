@@ -5,6 +5,7 @@ mod admin_cms;
 mod admin_social;
 mod admin_social_bulk;
 mod admin_social_ml;
+mod admin_social_ops;
 mod admin_team;
 mod ai;
 mod ai_runtime;
