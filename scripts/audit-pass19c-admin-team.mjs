@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 const text = readFileSync('src/admin_team.rs', 'utf8');
 const required = [
   'admin-rbac-effective-status',
+  '.route("/actor", get(actor))',
+  'GET /api/admin/team/actor',
+  'authorize_admin_actor',
   'with assignments as',
   'expires_at <= now()',
   'expires_at > now()',
