@@ -1,0 +1,20 @@
+Karyra Spark API License
+
+Copyright (c) 2026 Karyra Spark contributors.
+All rights reserved.
+
+This repository and its contents are provided for review, development, and operational use within the Karyra Spark project only.
+
+Unless a separate written agreement or a later license update explicitly grants additional rights, you may not:
+
+- copy, redistribute, sublicense, sell, or commercially exploit this repository or any substantial portion of it;
+- use the Karyra Spark name, backend architecture, API design, documentation, or operational identity in another product or service;
+- deploy a public derivative service based on this repository;
+- remove copyright, authorship, attribution, safety, or provenance notices;
+- use this project to mislead users, solicit financial activity, promote speculative trading, collect wallet secrets, or request seed phrases/private keys.
+
+Contributions submitted to this repository may be reviewed and, if accepted, incorporated into the project. Unless otherwise agreed in writing, contributors grant the project maintainers the right to use, modify, and distribute their contributions as part of Karyra Spark under this license or a future project license.
+
+This software and documentation are provided "as is", without warranty of any kind, express or implied. The maintainers are not liable for any claim, damages, or other liability arising from use of this repository.
+
+Karyra Spark API is backend infrastructure for an education and readiness platform, not financial advice, not a trading tool, and not a wallet custody service.
