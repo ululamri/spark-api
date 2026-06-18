@@ -44,3 +44,7 @@ curl http://127.0.0.1:8787/health/ready
 Without PostgreSQL, `cargo check` and `cargo build` can still pass. Runtime startup uses a lazy SQLx pool, but DB-backed endpoints and `/health/ready` need PostgreSQL.
 
 This pass does not implement email verification, password reset, rate limiting, roles, or Starknet integration yet.
+
+## License
+
+Karyra Spark API is source-available with all rights reserved. See [LICENSE](LICENSE) for the current project license and reuse restrictions.
