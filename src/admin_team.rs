@@ -58,7 +58,7 @@ async fn scope(
     admin_auth::authorize_with_capability(&state, &headers, "audit_read").await?;
     Ok(success(ScopeData {
         module: module_path!(),
-        phase: "admin-rbac-foundation",
+        phase: "admin-rbac-effective-status",
         roles: role_catalog(),
         routes: vec![
             "GET /api/admin/team/scope",
@@ -118,26 +118,39 @@ async fn members(
 
     let items = sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
         r#"
-        select ara.id,
-               ara.user_id,
-               u.email,
-               coalesce(nullif(p.display_name, ''), split_part(u.email, '@', 1), 'Pengguna Spark') as display_name,
-               p.handle,
-               case when ara.role = 'sub_admin' then 'admin' else ara.role end as role,
-               ara.capabilities,
-               ara.status,
-               ara.reason,
-               ara.starts_at,
-               ara.expires_at,
-               ara.created_at,
-               ara.updated_at
-        from admin_role_assignments ara
-        join users u on u.id = ara.user_id
-        left join profiles p on p.user_id = ara.user_id
-        where ($1::text is null or ara.role = $1 or ($1 = 'admin' and ara.role = 'sub_admin'))
-          and ara.status = $2
-          and ($2 <> 'active' or ara.revoked_at is null)
-        order by ara.updated_at desc, ara.created_at desc
+        with assignments as (
+          select ara.id,
+                 ara.user_id,
+                 u.email,
+                 coalesce(nullif(p.display_name, ''), split_part(u.email, '@', 1), 'Pengguna Spark') as display_name,
+                 p.handle,
+                 case when ara.role = 'sub_admin' then 'admin' else ara.role end as role,
+                 ara.capabilities,
+                 case
+                   when ara.status = 'active'
+                    and ara.revoked_at is null
+                    and ara.starts_at <= now()
+                    and (ara.expires_at is null or ara.expires_at > now()) then 'active'
+                   when ara.status = 'active'
+                    and ara.revoked_at is null
+                    and ara.expires_at is not null
+                    and ara.expires_at <= now() then 'expired'
+                   when ara.status = 'revoked' or ara.revoked_at is not null then 'revoked'
+                   else ara.status
+                 end as status,
+                 ara.reason,
+                 ara.starts_at,
+                 ara.expires_at,
+                 ara.created_at,
+                 ara.updated_at
+          from admin_role_assignments ara
+          join users u on u.id = ara.user_id
+          left join profiles p on p.user_id = ara.user_id
+          where ($1::text is null or ara.role = $1 or ($1 = 'admin' and ara.role = 'sub_admin'))
+        )
+        select * from assignments
+        where status = $2
+        order by updated_at desc, created_at desc
         limit $3 offset $4
         "#,
     )
@@ -150,11 +163,23 @@ async fn members(
 
     let total = sqlx::query_scalar::<_, i64>(
         r#"
-        select count(*)
-        from admin_role_assignments ara
-        where ($1::text is null or ara.role = $1 or ($1 = 'admin' and ara.role = 'sub_admin'))
-          and ara.status = $2
-          and ($2 <> 'active' or ara.revoked_at is null)
+        with assignments as (
+          select case
+                   when ara.status = 'active'
+                    and ara.revoked_at is null
+                    and ara.starts_at <= now()
+                    and (ara.expires_at is null or ara.expires_at > now()) then 'active'
+                   when ara.status = 'active'
+                    and ara.revoked_at is null
+                    and ara.expires_at is not null
+                    and ara.expires_at <= now() then 'expired'
+                   when ara.status = 'revoked' or ara.revoked_at is not null then 'revoked'
+                   else ara.status
+                 end as status
+          from admin_role_assignments ara
+          where ($1::text is null or ara.role = $1 or ($1 = 'admin' and ara.role = 'sub_admin'))
+        )
+        select count(*) from assignments where status = $2
         "#,
     )
     .bind(role.as_deref())
@@ -196,6 +221,12 @@ async fn upsert_member(
     let capabilities = admin_auth::normalize_capabilities(&role, &requested_capabilities)?;
     let user_id = resolve_target_user(&state, payload.user_id, payload.email.as_deref()).await?;
     let reason = clean_reason(payload.reason.as_deref())?;
+
+    if let Some(expires_at) = payload.expires_at.as_ref() {
+        if *expires_at <= Utc::now() {
+            return Err(ApiError::BadRequest("expires_at must be in the future".to_string()));
+        }
+    }
 
     let assignment_id = Uuid::new_v4();
     sqlx::query(
@@ -273,6 +304,8 @@ async fn revoke_member(
           and (role = $2 or ($2 = 'admin' and role = 'sub_admin'))
           and status = 'active'
           and revoked_at is null
+          and starts_at <= now()
+          and (expires_at is null or expires_at > now())
         "#,
     )
     .bind(user_id)
@@ -351,7 +384,7 @@ async fn fetch_active_assignment(
                p.handle,
                case when ara.role = 'sub_admin' then 'admin' else ara.role end as role,
                ara.capabilities,
-               ara.status,
+               'active' as status,
                ara.reason,
                ara.starts_at,
                ara.expires_at,
@@ -364,6 +397,8 @@ async fn fetch_active_assignment(
           and (ara.role = $2 or ($2 = 'admin' and ara.role = 'sub_admin'))
           and ara.status = 'active'
           and ara.revoked_at is null
+          and ara.starts_at <= now()
+          and (ara.expires_at is null or ara.expires_at > now())
         order by case ara.role when 'admin' then 2 when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
                  ara.updated_at desc
         limit 1
