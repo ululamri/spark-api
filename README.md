@@ -47,4 +47,4 @@ This pass does not implement email verification, password reset, rate limiting, 
 
 ## License
 
-Karyra Spark API is source-available with all rights reserved. See [LICENSE](LICENSE) for the current project license and reuse restrictions.
+Karyra Spark API is open source under the MIT License. See [LICENSE](LICENSE).
