@@ -30,6 +30,7 @@ fn success<T>(data: T) -> Json<AdminEnvelope<T>> {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/scope", get(scope))
+        .route("/actor", get(actor))
         .route("/members", get(members).post(upsert_member))
         .route("/members/:user_id/revoke", post(revoke_member))
         .route("/capabilities", get(capabilities))
@@ -62,6 +63,7 @@ async fn scope(
         roles: role_catalog(),
         routes: vec![
             "GET /api/admin/team/scope",
+            "GET /api/admin/team/actor",
             "GET /api/admin/team/capabilities",
             "GET /api/admin/team/members",
             "POST /api/admin/team/members",
@@ -70,6 +72,14 @@ async fn scope(
         auth_model:
             "superadmin token bootstrap plus session-backed admin/moderator role assignments",
     }))
+}
+
+async fn actor(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AdminEnvelope<admin_auth::AdminContext>>, ApiError> {
+    let actor = admin_auth::authorize_admin_actor(&state, &headers).await?;
+    Ok(success(actor))
 }
 
 async fn capabilities(
