@@ -59,7 +59,7 @@ async fn scope(
     admin_auth::authorize_with_capability(&state, &headers, "audit_read").await?;
     Ok(success(ScopeData {
         module: module_path!(),
-        phase: "admin-rbac-effective-status",
+        phase: "admin-rbac-final-matrix",
         roles: role_catalog(),
         routes: vec![
             "GET /api/admin/team/scope",
@@ -126,7 +126,7 @@ async fn members(
         .transpose()?
         .unwrap_or_else(|| "active".to_string());
 
-    let items = sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
+    let mut items = sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
         r#"
         with assignments as (
           select ara.id,
@@ -170,6 +170,10 @@ async fn members(
     .bind(offset)
     .fetch_all(&state.db)
     .await?;
+
+    for item in &mut items {
+        item.capabilities = admin_auth::sanitize_capabilities_for_role(&item.role, &item.capabilities);
+    }
 
     let total = sqlx::query_scalar::<_, i64>(
         r#"
@@ -385,7 +389,7 @@ async fn fetch_active_assignment(
     user_id: Uuid,
     role: &str,
 ) -> Result<admin_auth::AdminAssignmentRow, ApiError> {
-    sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
+    let mut assignment = sqlx::query_as::<_, admin_auth::AdminAssignmentRow>(
         r#"
         select ara.id,
                ara.user_id,
@@ -418,7 +422,11 @@ async fn fetch_active_assignment(
     .bind(role)
     .fetch_optional(&state.db)
     .await?
-    .ok_or_else(|| ApiError::BadRequest("active admin assignment was not found".to_string()))
+    .ok_or_else(|| ApiError::BadRequest("active admin assignment was not found".to_string()))?;
+
+    assignment.capabilities =
+        admin_auth::sanitize_capabilities_for_role(&assignment.role, &assignment.capabilities);
+    Ok(assignment)
 }
 
 fn normalize_status(input: &str) -> Result<String, ApiError> {
@@ -465,7 +473,8 @@ fn role_catalog() -> Vec<RoleInfo> {
         },
         RoleInfo {
             role: "moderator",
-            description: "Moderation-focused role for queue review, report handling, media review, and limited bulk actions.",
+            description:
+                "Review-focused moderation role for reports, content inspection, and media review.",
             capabilities: admin_auth::MODERATOR_ALLOWED_CAPABILITIES
                 .iter()
                 .map(|value| value.to_string())
