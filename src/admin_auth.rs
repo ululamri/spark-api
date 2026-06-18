@@ -182,10 +182,9 @@ pub fn default_capabilities_for_role(role: &str) -> Result<Vec<String>, ApiError
     Ok(defaults.iter().map(|value| value.to_string()).collect())
 }
 
-pub async fn authorize_with_capability(
+pub async fn authorize_admin_actor(
     state: &AppState,
     headers: &HeaderMap,
-    capability: &str,
 ) -> Result<AdminContext, ApiError> {
     if let Some(context) = authorize_super_admin_token(state, headers)? {
         return Ok(context);
@@ -212,10 +211,6 @@ pub async fn authorize_with_capability(
     .await?
     .ok_or(ApiError::Unauthorized)?;
 
-    if !row.capabilities.iter().any(|item| item == capability) {
-        return Err(ApiError::Unauthorized);
-    }
-
     let role = canonical_role(&row.role);
     Ok(AdminContext {
         actor_kind: role.clone(),
@@ -223,6 +218,20 @@ pub async fn authorize_with_capability(
         role,
         capabilities: row.capabilities,
     })
+}
+
+pub async fn authorize_with_capability(
+    state: &AppState,
+    headers: &HeaderMap,
+    capability: &str,
+) -> Result<AdminContext, ApiError> {
+    let context = authorize_admin_actor(state, headers).await?;
+
+    if !context.capabilities.iter().any(|item| item == capability) {
+        return Err(ApiError::Unauthorized);
+    }
+
+    Ok(context)
 }
 
 pub async fn authorize_admin_manage(
