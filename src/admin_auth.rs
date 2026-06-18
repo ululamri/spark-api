@@ -55,11 +55,9 @@ pub const SUB_ADMIN_ALLOWED_CAPABILITIES: &[&str] = ADMIN_ALLOWED_CAPABILITIES;
 pub const MODERATOR_ALLOWED_CAPABILITIES: &[&str] = &[
     "moderation_read",
     "moderation_action",
-    "moderation_bulk",
     "reports_manage",
     "content_read",
     "media_review",
-    "audit_read",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,9 +147,29 @@ pub fn normalize_capabilities(role: &str, input: &[String]) -> Result<Vec<String
     Ok(output)
 }
 
+pub fn sanitize_capabilities_for_role(role: &str, input: &[String]) -> Vec<String> {
+    let Some(allowed) = allowed_capabilities_for_role(role) else {
+        return Vec::new();
+    };
+    let mut output = Vec::<String>::new();
+    for item in input {
+        let capability = item.trim();
+        if allowed.iter().any(|allowed_item| allowed_item == &capability)
+            && !output.iter().any(|value| value == capability)
+        {
+            output.push(capability.to_string());
+        }
+    }
+    if output.is_empty() {
+        return default_capabilities_for_role(role).unwrap_or_default();
+    }
+    output
+}
+
 pub fn default_capabilities_for_role(role: &str) -> Result<Vec<String>, ApiError> {
     let defaults: &[&str] = match role.trim() {
         "admin" | "sub_admin" => &[
+            "ml_moderation_manage",
             "moderation_read",
             "moderation_action",
             "moderation_restore",
@@ -168,7 +186,6 @@ pub fn default_capabilities_for_role(role: &str) -> Result<Vec<String>, ApiError
         "moderator" => &[
             "moderation_read",
             "moderation_action",
-            "moderation_bulk",
             "reports_manage",
             "content_read",
             "media_review",
@@ -212,11 +229,12 @@ pub async fn authorize_admin_actor(
     .ok_or(ApiError::Unauthorized)?;
 
     let role = canonical_role(&row.role);
+    let capabilities = sanitize_capabilities_for_role(&role, &row.capabilities);
     Ok(AdminContext {
         actor_kind: role.clone(),
         actor_user_id: Some(user.id),
         role,
-        capabilities: row.capabilities,
+        capabilities,
     })
 }
 
