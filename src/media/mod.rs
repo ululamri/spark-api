@@ -325,11 +325,25 @@ async fn complete_upload(
     Json(payload): Json<CompleteUploadRequest>,
 ) -> Result<Json<MediaAssetResponse>, ApiError> {
     let user = require_current_user(&state, &headers).await?;
-    let checksum = clean_optional_segment(payload.checksum.as_deref(), "checksum")?;
-    let size_bytes = payload
-        .size_bytes
-        .map(|value| validate_size_bytes(value, "size_bytes"))
-        .transpose()?;
+
+    if payload.checksum.is_some() || payload.size_bytes.is_some() {
+        return Err(ApiError::BadRequest(
+            "checksum and size_bytes are controlled by the upload intent and are not accepted during completion".to_string(),
+        ));
+    }
+
+    let existing = fetch_owned_asset(&state, user.id, asset_id).await?;
+    if existing.status == "uploaded" {
+        return Ok(Json(MediaAssetResponse::from(existing)));
+    }
+
+    if let Some(expires_at) = existing.upload_expires_at {
+        if expires_at < Utc::now() {
+            return Err(ApiError::BadRequest("media upload intent has expired".to_string()));
+        }
+    }
+
+    verify_uploaded_object(&state, &existing).await?;
     let metadata = payload.metadata;
 
     let row = sqlx::query_as::<_, MediaAssetRow>(
@@ -337,9 +351,7 @@ async fn complete_upload(
         update media_assets
         set status = 'uploaded',
             uploaded_at = coalesce(uploaded_at, now()),
-            checksum = coalesce($3, checksum),
-            size_bytes = coalesce($4, size_bytes),
-            metadata = coalesce($5, metadata),
+            metadata = coalesce($3, metadata),
             updated_at = now()
         where id = $1 and owner_user_id = $2
         returning id,
@@ -363,8 +375,6 @@ async fn complete_upload(
     )
     .bind(asset_id)
     .bind(user.id)
-    .bind(checksum)
-    .bind(size_bytes)
     .bind(metadata)
     .fetch_optional(&state.db)
     .await?
@@ -400,6 +410,25 @@ async fn create_media_link(
     .await?;
 
     Ok((StatusCode::CREATED, Json(MediaLinkResponse::from(row))))
+}
+
+async fn verify_uploaded_object(state: &AppState, asset: &MediaAssetRow) -> Result<(), ApiError> {
+    let url = storage_access_url(state, "HEAD", &asset.bucket, &asset.object_key)?;
+    let response = reqwest::Client::new()
+        .head(url)
+        .send()
+        .await
+        .map_err(|error| {
+            tracing::warn!(?error, asset_id = %asset.id, "media object HEAD verification failed");
+            ApiError::ServiceUnavailable("media object could not be verified in storage".to_string())
+        })?;
+
+    if !response.status().is_success() {
+        tracing::warn!(status = %response.status(), asset_id = %asset.id, "media object HEAD verification returned non-success status");
+        return Err(ApiError::BadRequest("uploaded media object was not found in storage".to_string()));
+    }
+
+    Ok(())
 }
 
 async fn fetch_owned_asset(
