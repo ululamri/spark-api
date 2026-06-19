@@ -1,0 +1,43 @@
+services:
+  directus-db:
+    image: postgres:16
+    container_name: karyra-directus-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DIRECTUS_DB_DATABASE:-karyra_directus}
+      POSTGRES_USER: ${DIRECTUS_DB_USER:-karyra_directus}
+      POSTGRES_PASSWORD: ${DIRECTUS_DB_PASSWORD:?DIRECTUS_DB_PASSWORD is required}
+    volumes:
+      - directus_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DIRECTUS_DB_USER:-karyra_directus} -d ${DIRECTUS_DB_DATABASE:-karyra_directus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  directus:
+    image: ${DIRECTUS_IMAGE:-directus/directus:11}
+    container_name: karyra-directus
+    restart: unless-stopped
+    depends_on:
+      directus-db:
+        condition: service_healthy
+    env_file:
+      - directus.env
+    environment:
+      DB_CLIENT: pg
+      DB_HOST: directus-db
+      DB_PORT: 5432
+      DB_DATABASE: ${DIRECTUS_DB_DATABASE:-karyra_directus}
+      DB_USER: ${DIRECTUS_DB_USER:-karyra_directus}
+      DB_PASSWORD: ${DIRECTUS_DB_PASSWORD:?DIRECTUS_DB_PASSWORD is required}
+    ports:
+      - "127.0.0.1:${DIRECTUS_PORT:-8055}:8055"
+    volumes:
+      - directus_uploads:/directus/uploads
+      - directus_extensions:/directus/extensions
+
+volumes:
+  directus_db_data:
+  directus_uploads:
+  directus_extensions:
