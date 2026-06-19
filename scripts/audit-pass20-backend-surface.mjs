@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 
 const scripts = [
   'scripts/audit-pass19-admin-surface.mjs',
-  'scripts/audit-pass20a-social-media-surface.mjs'
+  'scripts/audit-pass20a-social-media-surface.mjs',
+  'scripts/audit-pass20d-admin-social-report-consistency.mjs'
 ];
 
 let failed = false;
