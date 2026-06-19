@@ -8,13 +8,11 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::{ai_runtime, moderation, state::AppState};
+use crate::{admin_auth, ai_runtime, moderation, state::AppState};
 
-const ADMIN_HEADER: &str = "x-karyra-admin-token";
 
 #[derive(Serialize)]
 struct AdminEnvelope<T> {
@@ -117,24 +115,10 @@ pub fn router() -> Router<AppState> {
         .route("/moderate-text", post(moderate_text))
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AdminAiError> {
-    let configured = state
-        .config
-        .admin_token
-        .as_deref()
-        .ok_or(AdminAiError::NotConfigured)?;
-    let supplied = headers
-        .get(ADMIN_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .ok_or(AdminAiError::Unauthorized)?;
-
-    if Sha256::digest(configured.as_bytes()) == Sha256::digest(supplied.as_bytes()) {
-        Ok(())
-    } else {
-        Err(AdminAiError::Unauthorized)
-    }
+async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AdminAiError> {
+    admin_auth::authorize_with_capability(state, headers, "ai_manage").await?;
+    Ok(())
 }
-
 #[derive(Serialize)]
 struct ScopeData {
     module: &'static str,
@@ -149,7 +133,7 @@ async fn scope(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<AdminEnvelope<ScopeData>>, AdminAiError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers).await?;
     Ok(success(ScopeData {
         module: module_path!(),
         phase: "ai-moderation-foundation",
@@ -202,7 +186,7 @@ async fn settings(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<AdminEnvelope<SettingsData>>, AdminAiError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers).await?;
     Ok(success(fetch_settings(&state).await?))
 }
 
@@ -234,7 +218,7 @@ async fn update_settings(
     headers: HeaderMap,
     Json(payload): Json<UpdateSettingsRequest>,
 ) -> Result<Json<AdminEnvelope<SettingsData>>, AdminAiError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers).await?;
 
     if let Some(providers) = payload.providers {
         for patch in providers {
@@ -380,7 +364,7 @@ async fn moderate_text(
     headers: HeaderMap,
     Json(payload): Json<ModerateTextRequest>,
 ) -> Result<Json<AdminEnvelope<ModerateTextResponse>>, AdminAiError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers).await?;
     let text = clean_text(&payload.text)?;
     let target_type = payload.target_type.as_deref().unwrap_or("system");
     let target_type = normalize_target_type(target_type)?;
