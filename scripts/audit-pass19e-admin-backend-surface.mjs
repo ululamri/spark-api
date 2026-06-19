@@ -16,47 +16,51 @@ const files = {
 };
 
 const required = [
-  [files.http, '.nest("/api/admin/ai", crate::admin_ai::router())'],
-  [files.http, '.nest("/api/admin/audit", crate::admin_audit::router())'],
-  [files.http, '.nest("/api/admin/cms", crate::admin_cms::router())'],
-  [files.http, '.nest("/api/admin/team", crate::admin_team::router())'],
-  [files.http, '.nest("/api/admin/social/bulk", crate::admin_social_bulk::router())'],
-  [files.http, '.nest("/api/admin/social/ml", crate::admin_social_ml::router())'],
-  [files.http, '.nest("/api/admin/social/ops", crate::admin_social_ops::router())'],
-  [files.http, '.nest("/api/admin/social", crate::admin_social::router())'],
-  [files.http, '.nest("/api/admin", crate::admin::router())'],
-  [files.auth, 'pub async fn authorize_admin_actor'],
-  [files.auth, 'pub async fn authorize_with_capability'],
-  [files.auth, 'pub fn authorize_super_admin_only'],
-  [files.team, 'authorize_admin_actor'],
-  [files.team, 'authorize_admin_manage'],
-  [files.team, 'admin-rbac-final-matrix'],
-  [files.audit, 'authorize_with_capability'],
-  [files.social, 'authorize_with_capability'],
-  [files.socialMl, 'authorize_with_capability'],
-  [files.socialBulk, 'authorize_with_capability'],
-  [files.socialOps, 'authorize_with_capability'],
-  [files.ai, 'authorize_with_capability'],
-  [files.cms, 'authorize_with_capability']
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/ai", crate::admin_ai::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/audit", crate::admin_audit::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/cms", crate::admin_cms::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/team", crate::admin_team::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/social/bulk", crate::admin_social_bulk::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/social/ml", crate::admin_social_ml::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/social/ops", crate::admin_social_ops::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin/social", crate::admin_social::router())'],
+  ['src/http/mod.rs', files.http, '.nest("/api/admin", crate::admin::router())'],
+  ['src/admin_auth.rs', files.auth, 'pub async fn authorize_admin_actor'],
+  ['src/admin_auth.rs', files.auth, 'pub async fn authorize_with_capability'],
+  ['src/admin_auth.rs', files.auth, 'pub fn authorize_super_admin_only'],
+  ['src/admin_team.rs', files.team, 'authorize_admin_actor'],
+  ['src/admin_team.rs', files.team, 'authorize_admin_manage'],
+  ['src/admin_team.rs', files.team, 'admin-rbac-final-matrix'],
+  ['src/admin_audit.rs', files.audit, 'authorize_with_capability'],
+  ['src/admin_social.rs', files.social, 'authorize_with_capability'],
+  ['src/admin_social_ml.rs', files.socialMl, 'authorize_with_capability'],
+  ['src/admin_social_bulk.rs', files.socialBulk, 'authorize_with_capability'],
+  ['src/admin_social_ops.rs', files.socialOps, 'authorize_with_capability'],
+  ['src/admin_ai.rs', files.ai, 'authorize_with_capability'],
+  ['src/admin_cms.rs', files.cms, 'authorize_with_capability'],
+  ['src/admin/mod.rs', files.rootAdmin, 'admin_auth::authorize_super_admin_only(state, headers)']
 ];
-
-required.push([files.rootAdmin, 'admin_auth::authorize_super_admin_only(state, headers)']);
 
 const forbidden = [
-  [files.rootAdmin, 'use sha2::{Digest, Sha256};'],
-  [files.rootAdmin, 'const ADMIN_HEADER: &str = "x-karyra-admin-token";'],
-  [files.rootAdmin, 'TODO(production): replace the bootstrap token with scoped RBAC']
+  ['src/admin/mod.rs', files.rootAdmin, 'use sha2::{Digest, Sha256};'],
+  ['src/admin/mod.rs', files.rootAdmin, 'const ADMIN_HEADER: &str = "x-karyra-admin-token";'],
+  ['src/admin/mod.rs', files.rootAdmin, 'TODO(production): replace the bootstrap token with scoped RBAC'],
+  ['src/admin_ai.rs', files.ai, 'use sha2::{Digest, Sha256};'],
+  ['src/admin_ai.rs', files.ai, 'const ADMIN_HEADER: &str = "x-karyra-admin-token";']
 ];
 
-const blockers = required.filter(([text, needle]) => !text.includes(needle));
-for (const [text, needle] of forbidden) {
-  if (text.includes(needle)) blockers.push([text, `Forbidden legacy root admin auth pattern: ${needle}`]);
+const blockers = [];
+for (const [path, text, needle] of required) {
+  if (!text.includes(needle)) blockers.push(`${path}: missing ${needle}`);
+}
+for (const [path, text, needle] of forbidden) {
+  if (text.includes(needle)) blockers.push(`${path}: forbidden legacy admin auth pattern ${needle}`);
 }
 
 console.log('PASS 19E backend admin surface audit');
 if (blockers.length) {
   console.error('\nBlockers:');
-  for (const [, needle] of blockers) console.error(`- Missing ${needle}`);
+  for (const blocker of blockers) console.error(`- ${blocker}`);
   process.exit(1);
 }
 console.log('\nNo PASS 19E backend admin surface blockers found.');
