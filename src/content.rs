@@ -115,11 +115,6 @@ struct DirectusList<T> {
     data: Vec<T>,
 }
 
-#[derive(Debug, Deserialize)]
-struct DirectusItem<T> {
-    data: T,
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct DirectusLesson {
     id: Uuid,
@@ -269,12 +264,13 @@ async fn lesson_detail(
     .await?
     .ok_or_else(|| ApiError::BadRequest("published lesson was not found".to_string()))?;
 
+    let lesson_id = lesson.id.to_string();
     let mut blocks = directus_list::<DirectusLessonBlock>(
         &state,
         "karyra_lesson_blocks",
         &[
             ("filter[status][_eq]", "published"),
-            ("filter[lesson_id][_eq]", &lesson.id.to_string()),
+            ("filter[lesson_id][_eq]", lesson_id.as_str()),
             ("sort", "sort_order"),
             ("limit", "200"),
         ],
@@ -350,12 +346,13 @@ async fn lab_detail(
         validate_runtime_profile(profile)?;
     }
 
+    let module_id = module.id.to_string();
     let mut steps = directus_list::<DirectusLabStep>(
         &state,
         "karyra_lab_steps",
         &[
             ("filter[status][_eq]", "published"),
-            ("filter[lab_module_id][_eq]", &module.id.to_string()),
+            ("filter[lab_module_id][_eq]", module_id.as_str()),
             ("sort", "sort_order"),
             ("limit", "200"),
         ],
@@ -376,12 +373,13 @@ async fn fetch_runtime_profile(
     state: &AppState,
     runtime_id: Uuid,
 ) -> Result<Option<DirectusRuntimeProfile>, ApiError> {
+    let runtime_id = runtime_id.to_string();
     directus_single::<DirectusRuntimeProfile>(
         state,
         "karyra_lab_runtime_profiles",
         &[
             ("filter[status][_eq]", "published"),
-            ("filter[id][_eq]", &runtime_id.to_string()),
+            ("filter[id][_eq]", runtime_id.as_str()),
             ("limit", "1"),
         ],
     )
