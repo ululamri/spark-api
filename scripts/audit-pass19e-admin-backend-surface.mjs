@@ -40,20 +40,20 @@ const required = [
   [files.cms, 'authorize_with_capability']
 ];
 
-const warnings = [];
-if (files.rootAdmin.includes('fn authorize(state: &AppState, headers: &HeaderMap)')) {
-  warnings.push('src/admin/mod.rs still uses legacy root-token authorize() for root-only admin read endpoints. This is acceptable as a root-only bootstrap boundary, but it is not yet unified with admin_auth.rs.');
-}
-if (files.rootAdmin.includes('TODO(production): replace the bootstrap token with scoped RBAC')) {
-  warnings.push('src/admin/mod.rs still has production TODO for scoped RBAC replacement.');
-}
+required.push([files.rootAdmin, 'admin_auth::authorize_super_admin_only(state, headers)']);
+
+const forbidden = [
+  [files.rootAdmin, 'use sha2::{Digest, Sha256};'],
+  [files.rootAdmin, 'const ADMIN_HEADER: &str = "x-karyra-admin-token";'],
+  [files.rootAdmin, 'TODO(production): replace the bootstrap token with scoped RBAC']
+];
 
 const blockers = required.filter(([text, needle]) => !text.includes(needle));
-console.log('PASS 19E backend admin surface audit');
-if (warnings.length) {
-  console.log('\nWarnings:');
-  for (const warning of warnings) console.log(`- ${warning}`);
+for (const [text, needle] of forbidden) {
+  if (text.includes(needle)) blockers.push([text, `Forbidden legacy root admin auth pattern: ${needle}`]);
 }
+
+console.log('PASS 19E backend admin surface audit');
 if (blockers.length) {
   console.error('\nBlockers:');
   for (const [, needle] of blockers) console.error(`- Missing ${needle}`);

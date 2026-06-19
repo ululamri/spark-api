@@ -7,13 +7,11 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::state::AppState;
+use crate::{admin_auth, state::AppState};
 
-const ADMIN_HEADER: &str = "x-karyra-admin-token";
 const DATA_SOURCE_DATABASE: &str = "database";
 const DATA_SOURCE_NOT_AVAILABLE: &str = "not_available";
 
@@ -108,23 +106,13 @@ pub fn router() -> Router<AppState> {
 }
 
 fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AdminError> {
-    let configured = state
-        .config
-        .admin_token
-        .as_deref()
-        .ok_or(AdminError::NotConfigured)?;
-    let supplied = headers
-        .get(ADMIN_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .ok_or(AdminError::Unauthorized)?;
-
-    // Compare fixed-length digests so token length/content are not exposed via early equality exits.
-    if Sha256::digest(configured.as_bytes()) == Sha256::digest(supplied.as_bytes()) {
-        // TODO(production): replace the bootstrap token with scoped RBAC and audited admin identities.
-        Ok(())
-    } else {
-        Err(AdminError::Unauthorized)
+    if state.config.admin_token.is_none() {
+        return Err(AdminError::NotConfigured);
     }
+
+    admin_auth::authorize_super_admin_only(state, headers)
+        .map(|_| ())
+        .map_err(|_| AdminError::Unauthorized)
 }
 
 #[derive(Serialize)]
