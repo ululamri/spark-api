@@ -28,6 +28,7 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         .nest("/v1/profile", crate::profile::router())
         .nest("/v1/learning", crate::learning::router())
         .nest("/v1/lab", crate::lab::router())
+        .nest("/v1/content", crate::content::router())
         .nest("/v1/media", crate::media::router())
         .nest("/v1/media-optimizer", crate::media_optimizer_api::router())
         .nest("/v1/proof", crate::proof::router())
