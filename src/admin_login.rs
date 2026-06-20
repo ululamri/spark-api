@@ -50,12 +50,13 @@ struct ScopeData {
     routes: Vec<&'static str>,
     cookie_name: &'static str,
     auth_model: &'static str,
+    security_gates: Vec<&'static str>,
 }
 
 async fn scope() -> Json<AdminEnvelope<ScopeData>> {
     success(ScopeData {
         module: module_path!(),
-        phase: "delegated-admin-auth-boundary",
+        phase: "delegated-admin-email-mfa-foundation",
         routes: vec![
             "POST /api/admin/auth/login",
             "GET /api/admin/auth/me",
@@ -63,6 +64,11 @@ async fn scope() -> Json<AdminEnvelope<ScopeData>> {
         ],
         cookie_name: admin_auth::ADMIN_SESSION_COOKIE_NAME,
         auth_model: "superadmin remains root-token/session based; admin/moderator use dedicated admin session cookie",
+        security_gates: vec![
+            "delegated admin email must be verified",
+            "delegated admin TOTP factor must be enabled",
+            "no delegated admin session is created before both gates pass",
+        ],
     })
 }
 
@@ -76,8 +82,10 @@ struct LoginRequest {
 struct LoginAdminRow {
     user_id: Uuid,
     password_hash: Option<String>,
+    email_verified_at: Option<DateTime<Utc>>,
     role: String,
     capabilities: Vec<String>,
+    totp_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -95,8 +103,16 @@ async fn login(
         r#"
         select users.id as user_id,
                users.password_hash,
+               users.email_verified_at,
                case when ara.role = 'sub_admin' then 'admin' else ara.role end as role,
-               ara.capabilities
+               ara.capabilities,
+               exists(
+                 select 1
+                 from admin_totp_factors factor
+                 where factor.user_id = users.id
+                   and factor.enabled_at is not null
+                   and factor.revoked_at is null
+               ) as totp_enabled
         from users
         join admin_role_assignments ara on ara.user_id = users.id
         where lower(users.email) = lower($1)
@@ -132,6 +148,21 @@ async fn login(
         role,
         capabilities,
     };
+
+    if row.email_verified_at.is_none() {
+        audit_login_gate(&state, &actor, "admin_auth_email_verification_required", "Delegated admin email verification is required.").await?;
+        return Err(ApiError::BadRequest(
+            "admin email verification is required before delegated login".to_string(),
+        ));
+    }
+
+    if !row.totp_enabled {
+        audit_login_gate(&state, &actor, "admin_auth_mfa_setup_required", "Delegated admin TOTP setup is required.").await?;
+        return Err(ApiError::BadRequest(
+            "admin 2FA setup is required before delegated login".to_string(),
+        ));
+    }
+
     let (token, expires_at) = create_admin_session(&state, &actor).await?;
 
     admin_auth::audit(
@@ -143,7 +174,7 @@ async fn login(
         None,
         &actor.capabilities,
         "Delegated admin session was created.",
-        json!({"role": actor.role, "expires_at": expires_at}),
+        json!({"role": actor.role, "expires_at": expires_at, "email_verified": true, "totp_enabled": true}),
     )
     .await?;
 
@@ -209,6 +240,26 @@ async fn create_admin_session(
     .await?;
 
     Ok((token, expires_at))
+}
+
+async fn audit_login_gate(
+    state: &AppState,
+    actor: &admin_auth::AdminContext,
+    action: &str,
+    summary: &str,
+) -> Result<(), ApiError> {
+    admin_auth::audit(
+        state,
+        actor,
+        action,
+        "admin_auth_gate",
+        actor.actor_user_id,
+        None,
+        &actor.capabilities,
+        summary,
+        json!({"role": actor.role}),
+    )
+    .await
 }
 
 fn normalize_email(input: &str) -> Result<String, ApiError> {
