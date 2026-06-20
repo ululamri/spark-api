@@ -37,6 +37,7 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         .nest("/v1/social", crate::social::router())
         .nest("/v1/ai", crate::ai::router())
         .nest("/api/admin/auth", crate::admin_login::router())
+        .nest("/api/admin/onboarding", crate::admin_onboarding::router())
         .nest("/api/admin/ai", crate::admin_ai::router())
         .nest("/api/admin/audit", crate::admin_audit::router())
         .nest("/api/admin/cms", crate::admin_cms::router())
