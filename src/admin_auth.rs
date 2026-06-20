@@ -5,9 +5,10 @@ use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::{auth::session::require_current_user, error::ApiError, state::AppState};
+use crate::{auth::session::{hash_session_token, read_session_cookie}, error::ApiError, state::AppState};
 
 pub const ADMIN_HEADER: &str = "x-karyra-admin-token";
+pub const ADMIN_SESSION_COOKIE_NAME: &str = "spark_admin_session";
 
 pub const SUPER_ADMIN_CAPABILITIES: &[&str] = &[
     "developer_access",
@@ -207,35 +208,53 @@ pub async fn authorize_admin_actor(
         return Ok(context);
     }
 
-    let user = require_current_user(state, headers).await?;
-    let row = sqlx::query_as::<_, AssignmentForAuth>(
+    if let Some(context) = authorize_delegated_admin_session(state, headers).await? {
+        return Ok(context);
+    }
+
+    Err(ApiError::Unauthorized)
+}
+
+async fn authorize_delegated_admin_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<AdminContext>, ApiError> {
+    let token = match read_session_cookie(headers, ADMIN_SESSION_COOKIE_NAME) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let token_hash = hash_session_token(&token);
+
+    let row = sqlx::query_as::<_, AdminSessionForAuth>(
         r#"
-        select role, capabilities
-        from admin_role_assignments
-        where user_id = $1
-          and role in ('admin', 'sub_admin', 'moderator')
-          and status = 'active'
-          and revoked_at is null
-          and starts_at <= now()
-          and (expires_at is null or expires_at > now())
-        order by case role when 'admin' then 2 when 'sub_admin' then 2 when 'moderator' then 1 else 0 end desc,
-                 updated_at desc
-        limit 1
+        update admin_sessions
+        set last_seen_at = now()
+        from users
+        where admin_sessions.user_id = users.id
+          and admin_sessions.token_hash = $1
+          and admin_sessions.expires_at > now()
+          and admin_sessions.revoked_at is null
+          and users.status = 'active'
+        returning admin_sessions.user_id, admin_sessions.role, admin_sessions.capabilities
         "#,
     )
-    .bind(user.id)
+    .bind(token_hash)
     .fetch_optional(&state.db)
     .await?
     .ok_or(ApiError::Unauthorized)?;
 
     let role = canonical_role(&row.role);
+    if role != "admin" && role != "moderator" {
+        return Err(ApiError::Unauthorized);
+    }
     let capabilities = sanitize_capabilities_for_role(&role, &row.capabilities);
-    Ok(AdminContext {
+
+    Ok(Some(AdminContext {
         actor_kind: role.clone(),
-        actor_user_id: Some(user.id),
+        actor_user_id: Some(row.user_id),
         role,
         capabilities,
-    })
+    }))
 }
 
 pub async fn authorize_with_capability(
@@ -293,7 +312,8 @@ fn authorize_super_admin_token(
 }
 
 #[derive(Debug, FromRow)]
-struct AssignmentForAuth {
+struct AdminSessionForAuth {
+    user_id: Uuid,
     role: String,
     capabilities: Vec<String>,
 }
