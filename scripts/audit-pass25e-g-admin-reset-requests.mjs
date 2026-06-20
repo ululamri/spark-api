@@ -33,19 +33,24 @@ assertIncludes('admin reset', reset, 'GET /api/admin/reset/requests');
 assertIncludes('admin reset', reset, 'POST /api/admin/reset/requests/:request_id/review');
 assertIncludes('admin reset', reset, 'admin_reset_requests');
 assertIncludes('admin reset', reset, 'neutral_response');
-assertIncludes('admin reset', reset, 'authorize_admin_manage');
+assertIncludes('admin reset', reset, 'authorize_reset_reviewer');
+assertIncludes('admin reset', reset, 'can_review_target');
+assertIncludes('admin reset', reset, '"superadmin" => true');
+assertIncludes('admin reset', reset, '"admin" => target_role == Some("moderator")');
+assertIncludes('admin reset', reset, 'target.target_role = \'moderator\'');
 assertIncludes('admin reset', reset, 'admin_reset_request_review');
 assertIncludes('admin reset', reset, 'If this email is eligible for admin recovery');
+assertNotIncludes('admin reset', reset, 'authorize_admin_manage');
 assertNotIncludes('admin reset', reset, 'select exists(\n              select 1 from users');
 
 const migration = read('migrations/202606200003_admin_invite_only_model.sql');
 assertIncludes('reset migration', migration, 'create table if not exists admin_reset_requests');
 assertIncludes('reset migration', migration, "request_type text not null check (request_type in ('password', 'email', 'totp'))");
 
-console.log('PASS 25E-G admin reset request audit');
+console.log('PASS 25E-I admin reset hierarchical review audit');
 if (failures.length) {
   console.error(`failures: ${failures.length}`);
   for (const failure of failures) console.error(`FAIL ${failure}`);
   process.exit(1);
 }
-console.log('OK: admin reset request API is public-neutral and review queue is admin-manage protected.');
+console.log('OK: admin reset request API is public-neutral and review queue is hierarchically scoped.');
