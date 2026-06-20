@@ -28,9 +28,6 @@ pub struct AppConfig {
     pub ai_local_base_url: String,
     pub ai_user_model: String,
     pub ai_guard_model: String,
-    pub directus_enabled: bool,
-    pub directus_base_url: String,
-    pub directus_static_token: Option<String>,
 }
 
 impl AppConfig {
@@ -90,12 +87,6 @@ impl AppConfig {
             ),
             ai_user_model: env_first(&["AI_USER_MODEL", "OLLAMA_USER_MODEL"], "qwen2.5:3b"),
             ai_guard_model: env_first(&["AI_GUARD_MODEL", "OLLAMA_GUARD_MODEL"], "llama-guard3:1b"),
-            directus_enabled: env::var("SPARK_DIRECTUS_ENABLED")
-                .ok()
-                .and_then(|value| parse_bool(&value))
-                .unwrap_or(false),
-            directus_base_url: env_first(&["SPARK_DIRECTUS_BASE_URL", "DIRECTUS_BASE_URL"], "http://127.0.0.1:8055"),
-            directus_static_token: env_optional(&["SPARK_DIRECTUS_STATIC_TOKEN", "DIRECTUS_STATIC_TOKEN"]),
         }
     }
 
