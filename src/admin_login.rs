@@ -796,7 +796,7 @@ fn verify_totp_code(secret: &[u8], input: &str, last_used_step: Option<i64>) -> 
 }
 
 fn hotp(secret: &[u8], counter: u64) -> Result<String, ApiError> {
-    let mut mac = HmacSha1::new_from_slice(secret).map_err(|_| ApiError::Internal)?;
+    let mut mac = <HmacSha1 as Mac>::new_from_slice(secret).map_err(|_| ApiError::Internal)?;
     mac.update(&counter.to_be_bytes());
     let digest = mac.finalize().into_bytes();
     let offset = (digest[19] & 0x0f) as usize;
