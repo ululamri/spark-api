@@ -148,7 +148,6 @@ struct InviteAcceptRequest {
     email: String,
     email_proof_token: String,
     password: String,
-    totp_code: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -542,9 +541,9 @@ async fn accept_invite(
     let user = load_invited_user_with_password(&state, &email, &payload.password).await?;
     ensure_user_ready_for_admin_onboarding(&user)?;
 
-    let factor = sqlx::query_as::<_, TotpFactorRow>(
+    let factor_id = sqlx::query_scalar::<_, Uuid>(
         r#"
-        select id, secret_ciphertext, secret_nonce, last_used_step
+        select id
         from admin_totp_factors
         where user_id = $1
           and enabled_at is not null
@@ -557,20 +556,6 @@ async fn accept_invite(
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| ApiError::BadRequest("admin 2FA must be enabled before accepting invite".to_string()))?;
-
-    let secret = decrypt_totp_secret(&factor.secret_ciphertext, &factor.secret_nonce)?;
-    let used_step = verify_totp_code(&secret, &payload.totp_code, factor.last_used_step)?;
-    sqlx::query(
-        r#"
-        update admin_totp_factors
-        set last_used_step = $2, updated_at = now()
-        where id = $1 and revoked_at is null
-        "#,
-    )
-    .bind(factor.id)
-    .bind(used_step)
-    .execute(&state.db)
-    .await?;
 
     let accepted_at = Utc::now();
     let assignment_id = Uuid::new_v4();
@@ -622,7 +607,7 @@ async fn accept_invite(
     .bind(invitation.id)
     .bind(accepted_at)
     .bind(user.id)
-    .bind(json!({"accepted_via": "admin_invite_onboarding", "totp_factor_id": factor.id}))
+    .bind(json!({"accepted_via": "admin_invite_onboarding", "totp_factor_id": factor_id}))
     .execute(&state.db)
     .await?;
 
