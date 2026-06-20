@@ -34,6 +34,12 @@ assertIncludes('admin_login', adminLogin, 'admin_sessions');
 assertIncludes('admin_login', adminLogin, 'admin_auth_login');
 assertIncludes('admin_login', adminLogin, 'verify_password');
 assertIncludes('admin_login', adminLogin, 'HttpOnly; SameSite=Lax');
+assertIncludes('admin_login', adminLogin, 'email_verified_at');
+assertIncludes('admin_login', adminLogin, 'admin_totp_factors');
+assertIncludes('admin_login', adminLogin, 'totp_enabled');
+assertIncludes('admin_login', adminLogin, 'admin_auth_email_verification_required');
+assertIncludes('admin_login', adminLogin, 'admin_auth_mfa_setup_required');
+assertIncludes('admin_login', adminLogin, 'no delegated admin session is created before both gates pass');
 
 const main = read('src/main.rs');
 assertIncludes('main', main, 'mod admin_login;');
@@ -41,10 +47,17 @@ assertIncludes('main', main, 'mod admin_login;');
 const http = read('src/http/mod.rs');
 assertIncludes('http router', http, '.nest("/api/admin/auth", crate::admin_login::router())');
 
-const migration = read('migrations/202606200001_admin_sessions.sql');
-assertIncludes('admin sessions migration', migration, 'create table if not exists admin_sessions');
-assertIncludes('admin sessions migration', migration, "role text not null check (role in ('admin', 'moderator'))");
-assertIncludes('admin sessions migration', migration, 'token_hash text not null unique');
+const sessionMigration = read('migrations/202606200001_admin_sessions.sql');
+assertIncludes('admin sessions migration', sessionMigration, 'create table if not exists admin_sessions');
+assertIncludes('admin sessions migration', sessionMigration, "role text not null check (role in ('admin', 'moderator'))");
+assertIncludes('admin sessions migration', sessionMigration, 'token_hash text not null unique');
+
+const mfaMigration = read('migrations/202606200002_admin_email_mfa_foundation.sql');
+assertIncludes('admin mfa migration', mfaMigration, 'add column if not exists email_verified_at');
+assertIncludes('admin mfa migration', mfaMigration, 'admin_email_verification_tokens');
+assertIncludes('admin mfa migration', mfaMigration, 'admin_totp_factors');
+assertIncludes('admin mfa migration', mfaMigration, 'admin_auth_challenges');
+assertIncludes('admin mfa migration', mfaMigration, "challenge_type in ('email_verification', 'totp_setup', 'totp_login')");
 
 console.log('PASS 25C admin auth boundary audit');
 if (failures.length) {
@@ -52,4 +65,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`FAIL ${failure}`);
   process.exit(1);
 }
-console.log('OK: superadmin root and delegated admin/moderator auth boundaries are separated.');
+console.log('OK: superadmin root is unchanged and delegated admin/moderator login is gated by email verification + MFA foundation.');
