@@ -46,9 +46,18 @@ assertNotIncludes('admin reset no direct totp delete', reset, 'delete from admin
 assertNotIncludes('admin reset no unsafe raw token field', reset, 'raw_recovery_token');
 assertNotIncludes('admin reset no unsafe response field', reset, 'recovery_token:');
 
+const recovery = read('src/admin_recovery.rs');
+assertIncludes('admin recovery intake shell', recovery, 'credential recovery execution remains a later separate flow');
+assertIncludes('admin recovery inspect route', recovery, '.route("/inspect", post(inspect_recovery_artifact))');
+assertIncludes('admin recovery no mutation flag', recovery, 'credential_mutation: false');
+assertNotIncludes('admin recovery no direct password mutation', recovery, 'password_hash =');
+assertNotIncludes('admin recovery no direct email mutation', recovery, 'set email =');
+assertNotIncludes('admin recovery no direct totp disable', recovery, 'enabled = false');
+assertNotIncludes('admin recovery no artifact consumption yet', recovery, 'used_at = now()');
+
 const http = read('src/http/mod.rs');
 assertIncludes('admin reset router mounted', http, '.nest("/api/admin/reset", crate::admin_reset::router())');
-assertNotIncludes('no recovery execution router', http, 'admin_recovery');
+assertIncludes('admin recovery intake router mounted', http, '.nest("/api/admin/recovery", crate::admin_recovery::router())');
 
 console.log('PASS 25E-L admin recovery execution lock audit');
 if (failures.length) {
@@ -56,4 +65,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`FAIL ${failure}`);
   process.exit(1);
 }
-console.log('OK: recovery approval/artifact issuance remains separated from credential mutation endpoints.');
+console.log('OK: recovery approval/artifact intake remains separated from credential mutation endpoints.');
