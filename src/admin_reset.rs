@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::{admin_auth, error::ApiError, state::AppState};
 
 const RESET_REQUEST_DAYS: i64 = 7;
+const RECOVERY_ARTIFACT_MINUTES: i64 = 45;
 
 #[derive(Serialize)]
 struct AdminEnvelope<T> {
@@ -36,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .route("/request", post(create_reset_request))
         .route("/requests", get(reset_requests))
         .route("/requests/:request_id/review", post(review_reset_request))
+        .route("/requests/:request_id/recovery-artifacts", post(issue_recovery_artifact))
 }
 
 #[derive(Serialize)]
@@ -54,6 +56,7 @@ async fn scope() -> Json<AdminEnvelope<ScopeData>> {
             "POST /api/admin/reset/request",
             "GET /api/admin/reset/requests",
             "POST /api/admin/reset/requests/:request_id/review",
+            "POST /api/admin/reset/requests/:request_id/recovery-artifacts",
         ],
         policy: vec![
             "public reset request endpoint always returns neutral response",
@@ -62,7 +65,9 @@ async fn scope() -> Json<AdminEnvelope<ScopeData>> {
             "admin can review moderator reset requests only",
             "admin cannot approve admin reset requests",
             "moderator cannot review reset requests",
-            "this pass records approval/rejection only; actual credential reset remains a separate controlled action",
+            "approval records review only; credential reset remains a separate recovery flow",
+            "approved requests may issue a single-use short-lived recovery artifact",
+            "recovery artifact token is stored as a hash and is not returned unless bootstrap return mode is enabled",
         ],
     })
 }
@@ -120,6 +125,35 @@ struct ReviewResetRequestPayload {
 #[derive(Serialize)]
 struct ReviewResetRequestData {
     request: ResetRequestRow,
+}
+
+#[derive(Debug, Deserialize)]
+struct IssueRecoveryArtifactRequest {
+    reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct RecoveryArtifactRow {
+    id: Uuid,
+    reset_request_id: Uuid,
+    email: String,
+    request_type: String,
+    target_role: Option<String>,
+    status: String,
+    created_by_actor_kind: String,
+    created_by_user_id: Option<Uuid>,
+    issued_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+    used_at: Option<DateTime<Utc>>,
+    revoked_at: Option<DateTime<Utc>>,
+    metadata: Value,
+}
+
+#[derive(Serialize)]
+struct IssueRecoveryArtifactData {
+    artifact: RecoveryArtifactRow,
+    delivery_mode: &'static str,
+    manual_token: Option<String>,
 }
 
 async fn create_reset_request(
@@ -292,41 +326,14 @@ async fn review_reset_request(
 ) -> Result<Json<AdminEnvelope<ReviewResetRequestData>>, ApiError> {
     let actor = authorize_reset_reviewer(&state, &headers).await?;
     let decision = normalize_decision(&payload.decision)?;
-    let reason = payload
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("reviewed by admin reset queue");
+    let reason = clean_reason(payload.reason.as_deref())?;
+    let reason = if reason.is_empty() {
+        "reviewed by admin reset queue".to_string()
+    } else {
+        reason
+    };
 
-    let candidate = sqlx::query_as::<_, ResetRequestRow>(
-        r#"
-        select r.id, r.email, r.request_type, r.status, r.requested_at,
-               r.reviewed_by_actor_kind, r.reviewed_by_user_id, r.reviewed_at,
-               r.expires_at, r.metadata, target.target_role
-        from admin_reset_requests r
-        left join lateral (
-          select case when ara.role = 'sub_admin' then 'admin' else ara.role end as target_role
-          from users u
-          join admin_role_assignments ara on ara.user_id = u.id
-          where lower(u.email) = lower(r.email)
-            and ara.status = 'active'
-            and ara.revoked_at is null
-            and ara.starts_at <= now()
-            and (ara.expires_at is null or ara.expires_at > now())
-            and ara.role in ('admin', 'sub_admin', 'moderator')
-          order by case when ara.role in ('admin', 'sub_admin') then 0 else 1 end
-          limit 1
-        ) target on true
-        where r.id = $1
-          and r.status = 'pending'
-          and r.expires_at > now()
-        "#,
-    )
-    .bind(request_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| ApiError::BadRequest("reset request is not pending or has expired".to_string()))?;
+    let candidate = fetch_pending_request(&state, request_id).await?;
 
     if !can_review_target(&actor, candidate.target_role.as_deref()) {
         return Err(ApiError::Unauthorized);
@@ -384,6 +391,156 @@ async fn review_reset_request(
     Ok(success(ReviewResetRequestData { request }))
 }
 
+async fn issue_recovery_artifact(
+    Path(request_id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<IssueRecoveryArtifactRequest>,
+) -> Result<Json<AdminEnvelope<IssueRecoveryArtifactData>>, ApiError> {
+    let actor = authorize_reset_reviewer(&state, &headers).await?;
+    let request = fetch_approved_request(&state, request_id).await?;
+    if !can_review_target(&actor, request.target_role.as_deref()) {
+        return Err(ApiError::Unauthorized);
+    }
+
+    let duplicate = sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+          select 1 from admin_recovery_artifacts
+          where reset_request_id = $1
+            and status = 'pending'
+            and expires_at > now()
+            and used_at is null
+            and revoked_at is null
+        )
+        "#,
+    )
+    .bind(request_id)
+    .fetch_one(&state.db)
+    .await?;
+    if duplicate {
+        return Err(ApiError::Conflict(
+            "an active recovery artifact already exists for this reset request".to_string(),
+        ));
+    }
+
+    let reason = clean_reason(payload.reason.as_deref())?;
+    let token = new_recovery_token();
+    let token_hash = hash_token(&token);
+    let artifact_id = Uuid::new_v4();
+    let expires_at = Utc::now() + Duration::minutes(RECOVERY_ARTIFACT_MINUTES);
+
+    let artifact = sqlx::query_as::<_, RecoveryArtifactRow>(
+        r#"
+        insert into admin_recovery_artifacts (
+          id, reset_request_id, email, request_type, target_role, token_hash,
+          created_by_actor_kind, created_by_user_id, expires_at, metadata
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        returning id, reset_request_id, email, request_type, target_role, status,
+                  created_by_actor_kind, created_by_user_id, issued_at, expires_at,
+                  used_at, revoked_at, metadata
+        "#,
+    )
+    .bind(artifact_id)
+    .bind(request.id)
+    .bind(&request.email)
+    .bind(&request.request_type)
+    .bind(request.target_role.as_deref())
+    .bind(token_hash)
+    .bind(&actor.actor_kind)
+    .bind(actor.actor_user_id)
+    .bind(expires_at)
+    .bind(json!({
+        "source": "admin_reset_review_queue",
+        "reason": reason,
+        "reviewer_role": actor.role,
+        "delivery": "pending_out_of_band",
+        "credential_mutation": false
+    }))
+    .fetch_one(&state.db)
+    .await?;
+
+    admin_auth::audit(
+        &state,
+        &actor,
+        "admin_recovery_artifact_issue",
+        "admin_recovery_artifact",
+        None,
+        Some(artifact.id),
+        &actor.capabilities,
+        "Admin recovery artifact was issued for an approved reset request.",
+        json!({
+            "reset_request_id": request.id,
+            "request_type": request.request_type,
+            "target_role": request.target_role,
+            "reviewer_role": actor.role,
+            "expires_at": artifact.expires_at,
+            "credential_mutation": false
+        }),
+    )
+    .await?;
+
+    let return_token = std::env::var("SPARK_ADMIN_RECOVERY_RETURN_BOOTSTRAP_TOKENS")
+        .ok()
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    Ok(success(IssueRecoveryArtifactData {
+        artifact,
+        delivery_mode: if return_token {
+            "manual_bootstrap"
+        } else {
+            "out_of_band_delivery_pending"
+        },
+        manual_token: if return_token { Some(token) } else { None },
+    }))
+}
+
+async fn fetch_pending_request(state: &AppState, request_id: Uuid) -> Result<ResetRequestRow, ApiError> {
+    fetch_request_by_status(state, request_id, "pending", "reset request is not pending or has expired").await
+}
+
+async fn fetch_approved_request(state: &AppState, request_id: Uuid) -> Result<ResetRequestRow, ApiError> {
+    fetch_request_by_status(state, request_id, "approved", "reset request is not approved or has expired").await
+}
+
+async fn fetch_request_by_status(
+    state: &AppState,
+    request_id: Uuid,
+    status: &str,
+    missing_message: &str,
+) -> Result<ResetRequestRow, ApiError> {
+    sqlx::query_as::<_, ResetRequestRow>(
+        r#"
+        select r.id, r.email, r.request_type, r.status, r.requested_at,
+               r.reviewed_by_actor_kind, r.reviewed_by_user_id, r.reviewed_at,
+               r.expires_at, r.metadata, target.target_role
+        from admin_reset_requests r
+        left join lateral (
+          select case when ara.role = 'sub_admin' then 'admin' else ara.role end as target_role
+          from users u
+          join admin_role_assignments ara on ara.user_id = u.id
+          where lower(u.email) = lower(r.email)
+            and ara.status = 'active'
+            and ara.revoked_at is null
+            and ara.starts_at <= now()
+            and (ara.expires_at is null or ara.expires_at > now())
+            and ara.role in ('admin', 'sub_admin', 'moderator')
+          order by case when ara.role in ('admin', 'sub_admin') then 0 else 1 end
+          limit 1
+        ) target on true
+        where r.id = $1
+          and r.status = $2
+          and r.expires_at > now()
+        "#,
+    )
+    .bind(request_id)
+    .bind(status)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest(missing_message.to_string()))
+}
+
 async fn authorize_reset_reviewer(
     state: &AppState,
     headers: &HeaderMap,
@@ -430,6 +587,29 @@ fn normalize_decision(input: &str) -> Result<String, ApiError> {
         "approved" | "rejected" => Ok(input.trim().to_ascii_lowercase()),
         _ => Err(ApiError::BadRequest("decision must be approved or rejected".to_string())),
     }
+}
+
+fn clean_reason(input: Option<&str>) -> Result<String, ApiError> {
+    let value = input.unwrap_or("").trim();
+    if value.chars().count() > 1000 {
+        return Err(ApiError::BadRequest("reason is too long".to_string()));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(ApiError::BadRequest(
+            "reason cannot contain control characters".to_string(),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+fn new_recovery_token() -> String {
+    format!("adm_rec_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
+
+fn hash_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn header_hash(headers: &HeaderMap, name: &str) -> Option<String> {
