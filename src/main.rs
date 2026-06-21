@@ -6,6 +6,7 @@ mod admin_cms;
 mod admin_login;
 mod admin_onboarding;
 mod admin_public_guard;
+mod admin_notification_outbox;
 mod admin_recovery;
 mod admin_reset;
 mod admin_social;

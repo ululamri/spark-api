@@ -382,6 +382,26 @@ async fn execute_password_recovery(
 
     revoke_admin_sessions_tx(&mut tx, target.user_id, changed_at).await?;
 
+
+    crate::admin_notification_outbox::enqueue_recovery_notification_tx(
+        &mut tx,
+        crate::admin_notification_outbox::RecoveryNotification {
+            user_id: Some(target.user_id),
+            event_type: "admin_password_recovery_completed_notice",
+            recipient_email: &target.email,
+            subject: "Karyra Spark admin password recovery completed",
+            body: "Your Karyra Spark admin password was recovered. If this was not you, contact the superadmin immediately.",
+            related_artifact_id: Some(artifact.artifact_id),
+            related_reset_request_id: Some(artifact.reset_request_id),
+            metadata: crate::admin_notification_outbox::recovery_notification_metadata(
+                "admin_password_recovery",
+                "password",
+                true,
+            ),
+        },
+    )
+    .await?;
+
     tx.commit().await?;
 
     let actor = admin_auth::AdminContext {
@@ -641,6 +661,26 @@ async fn confirm_totp_recovery(
     .await?;
 
     revoke_admin_sessions_tx(&mut tx, target.user_id, enabled_at).await?;
+
+
+    crate::admin_notification_outbox::enqueue_recovery_notification_tx(
+        &mut tx,
+        crate::admin_notification_outbox::RecoveryNotification {
+            user_id: Some(target.user_id),
+            event_type: "admin_totp_recovery_completed_notice",
+            recipient_email: &target.email,
+            subject: "Karyra Spark admin 2FA recovery completed",
+            body: "Your Karyra Spark admin authenticator was rotated through recovery. If this was not you, contact the superadmin immediately.",
+            related_artifact_id: Some(artifact.artifact_id),
+            related_reset_request_id: Some(artifact.reset_request_id),
+            metadata: crate::admin_notification_outbox::recovery_notification_metadata(
+                "admin_totp_recovery",
+                "totp_rotation",
+                true,
+            ),
+        },
+    )
+    .await?;
 
     tx.commit().await?;
 
@@ -1028,6 +1068,45 @@ async fn complete_email_recovery(
     .await?;
 
     revoke_admin_sessions_tx(&mut tx, target.user_id, changed_at).await?;
+
+    crate::admin_notification_outbox::enqueue_recovery_notification_tx(
+        &mut tx,
+        crate::admin_notification_outbox::RecoveryNotification {
+            user_id: Some(target.user_id),
+            event_type: "admin_email_recovery_old_email_notice",
+            recipient_email: &artifact.email,
+            subject: "Karyra Spark admin email recovery completed",
+            body: "Your Karyra Spark admin email was changed through recovery. If this was not you, contact the superadmin immediately.",
+            related_artifact_id: Some(artifact.artifact_id),
+            related_reset_request_id: Some(artifact.reset_request_id),
+            metadata: crate::admin_notification_outbox::recovery_notification_metadata(
+                "admin_email_recovery",
+                "email_old_address_notice",
+                true,
+            ),
+        },
+    )
+    .await?;
+
+    crate::admin_notification_outbox::enqueue_recovery_notification_tx(
+        &mut tx,
+        crate::admin_notification_outbox::RecoveryNotification {
+            user_id: Some(target.user_id),
+            event_type: "admin_email_recovery_new_email_notice",
+            recipient_email: &new_email,
+            subject: "Karyra Spark admin email recovery completed",
+            body: "This email is now attached to a recovered Karyra Spark admin account. If this was not you, contact the superadmin immediately.",
+            related_artifact_id: Some(artifact.artifact_id),
+            related_reset_request_id: Some(artifact.reset_request_id),
+            metadata: crate::admin_notification_outbox::recovery_notification_metadata(
+                "admin_email_recovery",
+                "email_new_address_notice",
+                true,
+            ),
+        },
+    )
+    .await?;
+
     tx.commit().await?;
 
     let actor = recovery_actor(target.user_id, &target.role, &target.capabilities, "email_recovery_complete");
