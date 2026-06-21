@@ -19,11 +19,12 @@ fn footer() -> &'static str {
     "\nTerima kasih,\nTim Karyra Spark\n\n--------------------------------------------------------\nKaryra Spark\nRuang aman untuk belajar, membangun, dan berkolaborasi.\nEmail ini dikirim otomatis oleh sistem Karyra Spark. Jangan balas email ini.\nJika kamu tidak mengenali aktivitas ini, abaikan email ini atau hubungi superadmin.\n"
 }
 
-pub fn admin_invitation_email(role: &str, onboarding_url: &str, expires_at: DateTime<Utc>) -> String {
+pub fn admin_invitation_email(role: &str, onboarding_url: &str, invite_code: &str, expires_at: DateTime<Utc>) -> String {
     format!(
-        "{}\nHalo Sahabat Karyra,\n\nKamu menerima undangan untuk bergabung ke Karyra Spark Admin Panel sebagai {}.\n\nUntuk menerima undangan ini, buka tautan onboarding berikut:\n{}\n\nTautan ini bersifat pribadi, hanya untuk email yang diundang, dan akan kedaluwarsa pada {} UTC. Jangan teruskan tautan ini kepada orang lain.\n{}",
+        "{}\nHalo Sahabat Karyra,\n\nKamu menerima undangan untuk bergabung ke Karyra Spark Admin Panel sebagai {}.\n\nKode undangan kamu:\n{}\n\nUntuk menerima undangan ini, buka tautan onboarding berikut:\n{}\n\nJika halaman onboarding meminta Invite Code/Kode Undangan, salin dan masukkan kode undangan di atas.\n\nKode dan tautan ini bersifat pribadi, hanya untuk email yang diundang, dan akan kedaluwarsa pada {} UTC. Jangan teruskan kode atau tautan ini kepada orang lain.\n{}",
         header("Undangan akses admin"),
         role_label(role),
+        invite_code,
         onboarding_url,
         expires_at.format("%Y-%m-%d %H:%M:%S"),
         footer()

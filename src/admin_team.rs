@@ -542,7 +542,7 @@ async fn create_invitation(
         state.config.web_origin.trim_end_matches('/'),
         token
     );
-    let invite_body = crate::admin_email_templates::admin_invitation_email(&role, &onboarding_url, expires_at);
+    let invite_body = crate::admin_email_templates::admin_invitation_email(&role, &onboarding_url, &token, expires_at);
 
     crate::admin_notification_outbox::enqueue_admin_notification(
         &state.db,
@@ -561,7 +561,8 @@ async fn create_invitation(
                 "invitation_id": invitation_id,
                 "role": role,
                 "expires_at": expires_at,
-                "onboarding_url_included": true
+                "onboarding_url_included": true,
+                "invite_code_included": true
             }),
         },
     )
