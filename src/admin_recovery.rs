@@ -54,7 +54,7 @@ struct ScopeData {
 async fn scope() -> Json<AdminEnvelope<ScopeData>> {
     success(ScopeData {
         module: module_path!(),
-        phase: "admin-password-recovery-execution",
+        phase: "admin-password-recovery-completion-finalization",
         routes: vec![
             "POST /api/admin/recovery/inspect",
             "POST /api/admin/recovery/password",
@@ -66,6 +66,7 @@ async fn scope() -> Json<AdminEnvelope<ScopeData>> {
             "inspection does not mutate password, email, 2FA, or artifact status",
             "password recovery requires an approved password recovery artifact plus current TOTP code",
             "password recovery consumes the artifact exactly once",
+            "password recovery marks the reset request completed",
             "password recovery revokes existing delegated admin sessions",
             "email and 2FA recovery execution remain separate future flows",
         ],
@@ -130,6 +131,7 @@ struct PasswordRecoveryData {
     email: String,
     target_role: Option<String>,
     password_changed_at: DateTime<Utc>,
+    reset_request_completed: bool,
     sessions_revoked: bool,
 }
 
@@ -227,6 +229,34 @@ async fn execute_password_recovery(
         return Err(ApiError::Conflict("recovery artifact is no longer pending".to_string()));
     }
 
+    let completed = sqlx::query_scalar::<_, Option<Uuid>>(
+        r#"
+        update admin_reset_requests
+        set status = 'completed',
+            metadata = metadata || $3::jsonb
+        where id = $1
+          and status = 'approved'
+          and expires_at > now()
+        returning id
+        "#,
+    )
+    .bind(artifact.reset_request_id)
+    .bind(changed_at)
+    .bind(json!({
+        "completed_at": changed_at,
+        "completed_via": "admin_password_recovery",
+        "artifact_id": artifact.artifact_id,
+        "credential_mutation": true,
+        "mutation_type": "password"
+    }))
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    if completed.is_none() {
+        return Err(ApiError::Conflict("reset request is no longer approved".to_string()));
+    }
+
     sqlx::query(
         r#"
         update admin_sessions
@@ -263,6 +293,7 @@ async fn execute_password_recovery(
             "reset_request_id": artifact.reset_request_id,
             "artifact_id": artifact.artifact_id,
             "target_role": artifact.target_role,
+            "reset_request_completed": true,
             "sessions_revoked": true,
             "credential_mutation": true
         }),
@@ -275,6 +306,7 @@ async fn execute_password_recovery(
         email: target.email,
         target_role: artifact.target_role,
         password_changed_at: changed_at,
+        reset_request_completed: true,
         sessions_revoked: true,
     }))
 }
