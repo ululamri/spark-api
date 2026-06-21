@@ -32,17 +32,18 @@ const recovery = read('src/admin_recovery.rs');
 assertIncludes('recovery keeps password flow', recovery, '.route("/password", post(execute_password_recovery))');
 assertIncludes('recovery keeps 2fa setup', recovery, '.route("/totp/setup", post(setup_totp_recovery))');
 assertIncludes('recovery keeps 2fa confirm', recovery, '.route("/totp/confirm", post(confirm_totp_recovery))');
-assertIncludes('email artifact still inspectable', recovery, 'request_type');
-assertNotIncludes('no email execution route', recovery, '.route("/email"');
-assertNotIncludes('no email direct mutation', recovery, 'set email =');
-assertNotIncludes('no email completed audit yet', recovery, 'admin_recovery_email_completed');
-assertNotIncludes('no new email payload yet', recovery, 'new_email');
-assertNotIncludes('no change email marker', recovery, 'change_email');
+assertIncludes('email proof shell allowed', recovery, '.route("/email/request", post(request_email_recovery_otp))');
+assertIncludes('email proof confirm allowed', recovery, '.route("/email/confirm", post(confirm_email_recovery_otp))');
+assertIncludes('email artifact type guard', recovery, 'artifact.request_type != "email"');
+assertIncludes('email proof no mutation flag', recovery, '"credential_mutation": false');
+assertNotIncludes('no final email mutation', recovery, 'set email =');
+assertNotIncludes('no final email completed audit yet', recovery, 'admin_recovery_email_completed');
+assertNotIncludes('no direct change email marker', recovery, 'change_email');
 
 const reset = read('src/admin_reset.rs');
 assertIncludes('reset can request email recovery', reset, '"email"');
 assertNotIncludes('review queue no email mutation', reset, 'set email =');
-assertNotIncludes('review queue no new email payload', reset, 'new_email');
+assertNotIncludes('review queue no final email mutation marker', reset, 'admin_recovery_email_completed');
 
 console.log('PASS 25E-T backend admin email recovery lock audit');
 if (failures.length) {
@@ -50,4 +51,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`FAIL ${failure}`);
   process.exit(1);
 }
-console.log('OK: backend email recovery remains locked until a separate OTP-confirmed flow is implemented.');
+console.log('OK: backend email recovery remains proof-only; final account email mutation is still locked.');
