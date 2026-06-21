@@ -5,6 +5,7 @@ mod admin_auth;
 mod admin_cms;
 mod admin_login;
 mod admin_onboarding;
+mod admin_recovery;
 mod admin_reset;
 mod admin_social;
 mod admin_social_bulk;
