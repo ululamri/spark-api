@@ -4,6 +4,7 @@ mod admin_audit;
 mod admin_auth;
 mod admin_cms;
 mod admin_login;
+mod admin_mailer;
 mod admin_onboarding;
 mod admin_public_guard;
 mod admin_notification_outbox;
@@ -57,6 +58,7 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env();
     let bind_addr = config.bind_addr();
     let state = AppState::new(config).context("failed to initialize Spark API state")?;
+    admin_mailer::spawn_smtp_delivery_worker(state.clone())?;
     let app = http::router(&state.config).with_state(state);
     let listener = TcpListener::bind(&bind_addr)
         .await

@@ -28,6 +28,16 @@ pub struct AppConfig {
     pub ai_local_base_url: String,
     pub ai_user_model: String,
     pub ai_guard_model: String,
+    pub mail_driver: String,
+    pub smtp_host: Option<String>,
+    pub smtp_port: u16,
+    pub smtp_security: String,
+    pub smtp_username: Option<String>,
+    pub smtp_password: Option<String>,
+    pub mail_from: Option<String>,
+    pub mail_from_name: String,
+    pub mail_worker_interval_seconds: u64,
+    pub mail_worker_batch_limit: i64,
 }
 
 impl AppConfig {
@@ -87,6 +97,25 @@ impl AppConfig {
             ),
             ai_user_model: env_first(&["AI_USER_MODEL", "OLLAMA_USER_MODEL"], "qwen2.5:3b"),
             ai_guard_model: env_first(&["AI_GUARD_MODEL", "OLLAMA_GUARD_MODEL"], "llama-guard3:1b"),
+            mail_driver: env::var("SPARK_MAIL_DRIVER")
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase(),
+            smtp_host: env_optional(&["SPARK_SMTP_HOST"]),
+            smtp_port: env_or("SPARK_SMTP_PORT", "587").parse().unwrap_or(587),
+            smtp_security: env_or("SPARK_SMTP_SECURITY", "starttls")
+                .trim()
+                .to_ascii_lowercase(),
+            smtp_username: env_optional(&["SPARK_SMTP_USERNAME"]),
+            smtp_password: env_optional(&["SPARK_SMTP_PASSWORD"]),
+            mail_from: env_optional(&["SPARK_MAIL_FROM"]),
+            mail_from_name: env_or("SPARK_MAIL_FROM_NAME", "Karyra Spark"),
+            mail_worker_interval_seconds: env_or("SPARK_MAIL_WORKER_INTERVAL_SECONDS", "30")
+                .parse()
+                .unwrap_or(30),
+            mail_worker_batch_limit: env_or("SPARK_MAIL_WORKER_BATCH_LIMIT", "10")
+                .parse()
+                .unwrap_or(10),
         }
     }
 
