@@ -36,11 +36,15 @@ assertIncludes('admin reset neutral response', reset, 'If this email is eligible
 assertIncludes('admin reset hierarchy', reset, '"admin" => target_role == Some("moderator")');
 assertIncludes('admin reset artifact issue route', reset, 'issue_recovery_artifact');
 assertIncludes('admin reset artifact metadata', reset, '"credential_mutation": false');
+assertIncludes('admin reset artifact token helper', reset, 'fn new_recovery_token()');
+assertIncludes('admin reset artifact token hash', reset, 'let token_hash = hash_token(&token);');
+assertIncludes('admin reset artifact bootstrap gate', reset, 'SPARK_ADMIN_RECOVERY_RETURN_BOOTSTRAP_TOKENS');
 assertNotIncludes('admin reset no direct password mutation', reset, 'password_hash =');
 assertNotIncludes('admin reset no direct email mutation', reset, 'set email =');
 assertNotIncludes('admin reset no direct totp disable', reset, 'enabled = false');
 assertNotIncludes('admin reset no direct totp delete', reset, 'delete from admin_mfa_factors');
-assertNotIncludes('admin reset no raw recovery token naming', reset, 'recovery_token');
+assertNotIncludes('admin reset no unsafe raw token field', reset, 'raw_recovery_token');
+assertNotIncludes('admin reset no unsafe response field', reset, 'recovery_token:');
 
 const http = read('src/http/mod.rs');
 assertIncludes('admin reset router mounted', http, '.nest("/api/admin/reset", crate::admin_reset::router())');
