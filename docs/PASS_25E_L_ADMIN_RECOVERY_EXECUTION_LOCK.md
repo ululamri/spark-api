@@ -62,10 +62,12 @@ Implemented now:
 - Split superadmin login and delegated admin login.
 - Public unauthenticated reset request surface with neutral response.
 - Hierarchical reset review queue.
-- Audit guards for invite, onboarding, reset, navigation, and security boundary.
+- Single-use, short-lived recovery artifact issuance after approval.
+- Audit guards for invite, onboarding, reset, navigation, recovery artifacts, and security boundary.
 
 Not implemented yet:
 
 - Actual credential recovery execution.
-- Recovery artifact creation.
+- Recovery artifact consumption.
+- Password/email/2FA mutation from recovery flow.
 - Multi-superadmin database-backed root authority.
