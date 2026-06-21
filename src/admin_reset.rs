@@ -171,6 +171,8 @@ async fn create_reset_request(
     )
     .await?;
 
+    crate::admin_public_guard::check_public_throttle(&state, &headers, "admin_reset_request", Some(&payload.email), 5, 900).await?;
+
     let email = normalize_email(&payload.email).ok();
     let request_type = normalize_request_type(&payload.request_type).ok();
 
