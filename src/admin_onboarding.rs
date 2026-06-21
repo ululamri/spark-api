@@ -8,7 +8,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use axum::{extract::State, routing::{get, post}, Json, Router};
+use axum::{extract::State, http::HeaderMap, routing::{get, post}, Json, Router};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use data_encoding::BASE32_NOPAD;
@@ -246,16 +246,38 @@ struct InviteAcceptData {
 
 async fn inspect_invite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InviteTokenRequest>,
 ) -> Result<Json<AdminEnvelope<InviteInspectData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_invite_inspect",
+        Some(&payload.token),
+        20,
+        600,
+    )
+    .await?;
+
     let invitation = load_pending_invitation(&state, &payload.token, None).await?;
     Ok(success(invite_inspect_data(invitation)))
 }
 
 async fn request_invite_email_otp(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InviteEmailRequest>,
 ) -> Result<Json<AdminEnvelope<InviteEmailOtpData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_email_request",
+        Some(&payload.email),
+        8,
+        900,
+    )
+    .await?;
+
     let email = normalize_email(&payload.email)?;
     let invitation = load_pending_invitation(&state, &payload.token, Some(email.clone())).await?;
     let otp = new_otp();
@@ -289,8 +311,19 @@ async fn request_invite_email_otp(
 
 async fn confirm_invite_email_otp(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InviteEmailConfirmRequest>,
 ) -> Result<Json<AdminEnvelope<InviteEmailProofData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_email_confirm",
+        Some(&payload.email),
+        10,
+        900,
+    )
+    .await?;
+
     let email = normalize_email(&payload.email)?;
     let invitation = load_pending_invitation(&state, &payload.token, Some(email.clone())).await?;
     let otp = clean_otp(&payload.otp)?;
@@ -341,8 +374,19 @@ async fn confirm_invite_email_otp(
 
 async fn set_invite_password(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InvitePasswordRequest>,
 ) -> Result<Json<AdminEnvelope<InvitePasswordData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_password",
+        Some(&payload.email),
+        8,
+        900,
+    )
+    .await?;
+
     let email = normalize_email(&payload.email)?;
     let invitation = load_pending_invitation(&state, &payload.token, Some(email.clone())).await?;
     ensure_email_proof(&state, invitation.id, &email, &payload.email_proof_token).await?;
@@ -381,8 +425,19 @@ async fn set_invite_password(
 
 async fn setup_invite_totp(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InviteTotpSetupRequest>,
 ) -> Result<Json<AdminEnvelope<InviteTotpSetupData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_totp_setup",
+        Some(&payload.email),
+        8,
+        900,
+    )
+    .await?;
+
     let email = normalize_email(&payload.email)?;
     let invitation = load_pending_invitation(&state, &payload.token, Some(email.clone())).await?;
     ensure_email_proof(&state, invitation.id, &email, &payload.email_proof_token).await?;
@@ -468,8 +523,19 @@ async fn setup_invite_totp(
 
 async fn confirm_invite_totp(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InviteTotpConfirmRequest>,
 ) -> Result<Json<AdminEnvelope<InviteTotpConfirmData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_totp_confirm",
+        Some(&payload.email),
+        10,
+        900,
+    )
+    .await?;
+
     let email = normalize_email(&payload.email)?;
     let invitation = load_pending_invitation(&state, &payload.token, Some(email.clone())).await?;
     ensure_email_proof(&state, invitation.id, &email, &payload.email_proof_token).await?;
@@ -532,8 +598,19 @@ async fn confirm_invite_totp(
 
 async fn accept_invite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InviteAcceptRequest>,
 ) -> Result<Json<AdminEnvelope<InviteAcceptData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_onboarding_accept",
+        Some(&payload.email),
+        8,
+        900,
+    )
+    .await?;
+
     let email = normalize_email(&payload.email)?;
     let mut invitation = load_pending_invitation(&state, &payload.token, Some(email.clone())).await?;
     invitation.capabilities = admin_auth::sanitize_capabilities_for_role(&invitation.role, &invitation.capabilities);

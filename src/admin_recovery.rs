@@ -8,7 +8,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use axum::{routing::{get, post}, Json, Router};
+use axum::{http::HeaderMap, routing::{get, post}, Json, Router};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use data_encoding::BASE32_NOPAD;
@@ -276,8 +276,19 @@ struct EmailRecoveryCompleteData {
 
 async fn inspect_recovery_artifact(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<InspectRecoveryRequest>,
 ) -> Result<Json<AdminEnvelope<RecoveryArtifactInspectData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_inspect",
+        Some(&payload.email),
+        12,
+        600,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
 
     Ok(success(RecoveryArtifactInspectData {
@@ -295,8 +306,19 @@ async fn inspect_recovery_artifact(
 
 async fn execute_password_recovery(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<PasswordRecoveryRequest>,
 ) -> Result<Json<AdminEnvelope<PasswordRecoveryData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_password",
+        Some(&payload.email),
+        6,
+        900,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
     if artifact.request_type != "password" {
         return Err(ApiError::BadRequest("recovery artifact is not valid for password recovery".to_string()));
@@ -402,8 +424,19 @@ async fn execute_password_recovery(
 
 async fn setup_totp_recovery(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<TotpRecoverySetupRequest>,
 ) -> Result<Json<AdminEnvelope<TotpRecoverySetupData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_totp_setup",
+        Some(&payload.email),
+        6,
+        900,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
     if artifact.request_type != "totp" {
         return Err(ApiError::BadRequest("recovery artifact is not valid for 2FA recovery".to_string()));
@@ -505,8 +538,19 @@ async fn setup_totp_recovery(
 
 async fn confirm_totp_recovery(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<TotpRecoveryConfirmRequest>,
 ) -> Result<Json<AdminEnvelope<TotpRecoveryConfirmData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_totp_confirm",
+        Some(&payload.email),
+        6,
+        900,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
     if artifact.request_type != "totp" {
         return Err(ApiError::BadRequest("recovery artifact is not valid for 2FA recovery".to_string()));
@@ -639,8 +683,19 @@ async fn confirm_totp_recovery(
 
 async fn request_email_recovery_otp(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<EmailRecoveryOtpRequest>,
 ) -> Result<Json<AdminEnvelope<EmailRecoveryOtpData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_email_request",
+        Some(&payload.email),
+        6,
+        900,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
     if artifact.request_type != "email" {
         return Err(ApiError::BadRequest("recovery artifact is not valid for email recovery".to_string()));
@@ -758,8 +813,19 @@ async fn request_email_recovery_otp(
 
 async fn confirm_email_recovery_otp(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<EmailRecoveryOtpConfirmRequest>,
 ) -> Result<Json<AdminEnvelope<EmailRecoveryProofData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_email_confirm",
+        Some(&payload.email),
+        8,
+        900,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
     if artifact.request_type != "email" {
         return Err(ApiError::BadRequest("recovery artifact is not valid for email recovery".to_string()));
@@ -846,8 +912,19 @@ async fn confirm_email_recovery_otp(
 
 async fn complete_email_recovery(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<EmailRecoveryCompleteRequest>,
 ) -> Result<Json<AdminEnvelope<EmailRecoveryCompleteData>>, ApiError> {
+    crate::admin_public_guard::check_public_throttle(
+        &state,
+        &headers,
+        "admin_recovery_email_complete",
+        Some(&payload.email),
+        6,
+        900,
+    )
+    .await?;
+
     let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
     if artifact.request_type != "email" {
         return Err(ApiError::BadRequest("recovery artifact is not valid for email recovery".to_string()));
