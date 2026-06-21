@@ -726,6 +726,29 @@ async fn accept_invite(
     )
     .await?;
 
+    let completed_body = crate::admin_email_templates::admin_onboarding_completed_email(&invitation.role);
+    crate::admin_notification_outbox::enqueue_admin_notification(
+        &state.db,
+        crate::admin_notification_outbox::AdminNotification {
+            user_id: Some(user.id),
+            event_type: "admin_invite_onboarding_completed_email",
+            recipient_email: &user.email,
+            subject: "Akses Karyra Spark Admin Panel berhasil diaktifkan",
+            body: &completed_body,
+            related_artifact_id: None,
+            related_reset_request_id: None,
+            metadata: json!({
+                "source": "admin_invite_onboarding",
+                "notification_type": "admin_onboarding_completed",
+                "notification_delivery_pending": true,
+                "invitation_id": invitation.id,
+                "role": invitation.role,
+                "assignment_id": assignment_id
+            }),
+        },
+    )
+    .await?;
+
     Ok(success(InviteAcceptData {
         user_id: user.id,
         email: user.email,

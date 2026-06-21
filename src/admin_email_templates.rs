@@ -56,3 +56,11 @@ pub fn email_recovery_old_address_notice() -> &'static str {
 pub fn email_recovery_new_address_notice() -> &'static str {
     "Karyra Spark Admin Panel\nEmail admin aktif\n--------------------------------------------------------\n\nHalo Sahabat Karyra,\n\nEmail ini sekarang terhubung dengan akun admin Karyra Spark yang dipulihkan melalui alur keamanan. Semua sesi admin lama telah dicabut agar akun tetap aman.\n\nJika aktivitas ini bukan kamu, segera hubungi superadmin.\n\nTerima kasih,\nTim Karyra Spark\n\n--------------------------------------------------------\nKaryra Spark\nRuang aman untuk belajar, membangun, dan berkolaborasi.\nEmail ini dikirim otomatis oleh sistem Karyra Spark. Jangan balas email ini.\n"
 }
+
+
+pub fn admin_onboarding_completed_email(role: &str) -> String {
+    format!(
+        "Karyra Spark Admin Panel\nAkses admin berhasil diaktifkan\nAkun delegated admin kamu sekarang aktif.\n------------------------------------------------------------\n\nHalo Sahabat Karyra,\n\nAkun Karyra Spark Admin Panel kamu berhasil diaktifkan sebagai {}.\n\nKamu sekarang dapat masuk melalui halaman Admin Panel resmi menggunakan email, sandi, dan kode 2FA yang sudah kamu aktifkan.\n\nJika aktivasi ini bukan kamu, segera hubungi superadmin melalui kanal resmi Karyra.\n\nTerima kasih,\nTim Karyra Spark\n\n------------------------------------------------------------\nKaryra Spark\nRuang aman untuk belajar, membangun, dan berkolaborasi.\nEmail ini dikirim otomatis untuk keamanan akun dan operasional Admin Panel.\n",
+        role_label(role)
+    )
+}
