@@ -54,6 +54,7 @@ pub fn router() -> Router<AppState> {
         .route("/totp/confirm", post(confirm_totp_recovery))
         .route("/email/request", post(request_email_recovery_otp))
         .route("/email/confirm", post(confirm_email_recovery_otp))
+        .route("/email/complete", post(complete_email_recovery))
 }
 
 #[derive(Serialize)]
@@ -75,6 +76,7 @@ async fn scope() -> Json<AdminEnvelope<ScopeData>> {
             "POST /api/admin/recovery/totp/confirm",
             "POST /api/admin/recovery/email/request",
             "POST /api/admin/recovery/email/confirm",
+            "POST /api/admin/recovery/email/complete",
         ],
         policy: vec![
             "recovery artifact intake requires raw artifact token plus matching email",
@@ -137,6 +139,14 @@ struct EmailRecoveryOtpConfirmRequest {
     email: String,
     new_email: String,
     otp: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmailRecoveryCompleteRequest {
+    token: String,
+    email: String,
+    new_email: String,
+    email_proof_token: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -250,6 +260,18 @@ struct EmailRecoveryProofData {
     email_proof_token: String,
     proof_expires_at: DateTime<Utc>,
     credential_mutation: bool,
+}
+
+#[derive(Serialize)]
+struct EmailRecoveryCompleteData {
+    artifact_id: Uuid,
+    reset_request_id: Uuid,
+    old_email: String,
+    new_email: String,
+    target_role: Option<String>,
+    email_changed_at: DateTime<Utc>,
+    reset_request_completed: bool,
+    sessions_revoked: bool,
 }
 
 async fn inspect_recovery_artifact(
@@ -821,6 +843,154 @@ async fn confirm_email_recovery_otp(
 }
 
 
+
+async fn complete_email_recovery(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(payload): Json<EmailRecoveryCompleteRequest>,
+) -> Result<Json<AdminEnvelope<EmailRecoveryCompleteData>>, ApiError> {
+    let artifact = load_pending_artifact(&state, &payload.token, &payload.email).await?;
+    if artifact.request_type != "email" {
+        return Err(ApiError::BadRequest("recovery artifact is not valid for email recovery".to_string()));
+    }
+
+    let new_email = normalize_new_email(&payload.new_email, &artifact.email)?;
+    ensure_email_available(&state, &new_email).await?;
+
+    let target = load_credential_recovery_target(&state, &artifact.email, artifact.target_role.as_deref()).await?;
+    ensure_email_recovery_proof(
+        &state,
+        artifact.artifact_id,
+        artifact.reset_request_id,
+        target.user_id,
+        &artifact.email,
+        &new_email,
+        &payload.email_proof_token,
+    )
+    .await?;
+
+    let changed_at = Utc::now();
+    let mut tx = state.db.begin().await?;
+
+    let updated = sqlx::query_scalar::<_, Option<Uuid>>(
+        r#"
+        update users
+        set email = $2,
+            email_verified_at = $3
+        where id = $1
+          and lower(email) = lower($4)
+          and status = 'active'
+          and not exists (
+            select 1
+            from users other_user
+            where lower(other_user.email) = lower($2)
+              and other_user.id <> $1
+          )
+        returning id
+        "#,
+    )
+    .bind(target.user_id)
+    .bind(&new_email)
+    .bind(changed_at)
+    .bind(&artifact.email)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    if updated.is_none() {
+        return Err(ApiError::Conflict("new email is not available for recovery".to_string()));
+    }
+
+    sqlx::query(
+        r#"
+        update admin_email_recovery_otps
+        set metadata = metadata || $6::jsonb
+        where artifact_id = $1
+          and reset_request_id = $2
+          and user_id = $3
+          and lower(old_email) = lower($4)
+          and lower(new_email) = lower($5)
+          and consumed_at is not null
+          and revoked_at is null
+        "#,
+    )
+    .bind(artifact.artifact_id)
+    .bind(artifact.reset_request_id)
+    .bind(target.user_id)
+    .bind(&artifact.email)
+    .bind(&new_email)
+    .bind(json!({
+        "email_mutated_at": changed_at,
+        "email_mutated_via": "admin_email_recovery_finalization",
+        "credential_mutation": true
+    }))
+    .execute(&mut *tx)
+    .await?;
+
+    consume_artifact_and_complete_request_tx(
+        &mut tx,
+        &artifact,
+        changed_at,
+        json!({
+            "credential_mutation": true,
+            "mutation_type": "email",
+            "target_user_id": target.user_id,
+            "target_role": target.role,
+            "old_email": artifact.email,
+            "new_email": new_email
+        }),
+        json!({
+            "completed_at": changed_at,
+            "completed_via": "admin_email_recovery_finalization",
+            "artifact_id": artifact.artifact_id,
+            "credential_mutation": true,
+            "mutation_type": "email",
+            "old_email": artifact.email,
+            "new_email": new_email
+        }),
+    )
+    .await?;
+
+    revoke_admin_sessions_tx(&mut tx, target.user_id, changed_at).await?;
+    tx.commit().await?;
+
+    let actor = recovery_actor(target.user_id, &target.role, &target.capabilities, "email_recovery_complete");
+
+    admin_auth::audit(
+        &state,
+        &actor,
+        "admin_recovery_email_completed",
+        "user",
+        Some(target.user_id),
+        Some(artifact.artifact_id),
+        &actor.capabilities,
+        "Admin email was changed through approved recovery artifact and new-email proof flow.",
+        json!({
+            "reset_request_id": artifact.reset_request_id,
+            "artifact_id": artifact.artifact_id,
+            "target_role": artifact.target_role,
+            "old_email": artifact.email,
+            "new_email": new_email,
+            "reset_request_completed": true,
+            "sessions_revoked": true,
+            "notification_delivery_pending": true,
+            "credential_mutation": true
+        }),
+    )
+    .await?;
+
+    Ok(success(EmailRecoveryCompleteData {
+        artifact_id: artifact.artifact_id,
+        reset_request_id: artifact.reset_request_id,
+        old_email: artifact.email,
+        new_email,
+        target_role: artifact.target_role,
+        email_changed_at: changed_at,
+        reset_request_completed: true,
+        sessions_revoked: true,
+    }))
+}
+
+
 async fn consume_artifact_and_complete_request_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     artifact: &RecoveryArtifactInspectRow,
@@ -934,6 +1104,52 @@ async fn load_pending_artifact(
 }
 
 
+
+async fn ensure_email_recovery_proof(
+    state: &AppState,
+    artifact_id: Uuid,
+    reset_request_id: Uuid,
+    user_id: Uuid,
+    old_email: &str,
+    new_email: &str,
+    proof_token: &str,
+) -> Result<(), ApiError> {
+    let proof_token = clean_email_proof_token(proof_token)?;
+    let proof_hash = hash_token(&proof_token);
+
+    let exists = sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+          select 1
+          from admin_email_recovery_otps
+          where artifact_id = $1
+            and reset_request_id = $2
+            and user_id = $3
+            and lower(old_email) = lower($4)
+            and lower(new_email) = lower($5)
+            and consumed_at is not null
+            and revoked_at is null
+            and metadata->>'email_proof_token_hash' = $6
+            and (metadata->>'email_proof_expires_at')::timestamptz > now()
+        )
+        "#,
+    )
+    .bind(artifact_id)
+    .bind(reset_request_id)
+    .bind(user_id)
+    .bind(old_email)
+    .bind(new_email)
+    .bind(proof_hash)
+    .fetch_one(&state.db)
+    .await?;
+
+    if exists {
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
+
 async fn load_user_password_hash(state: &AppState, user_id: Uuid) -> Result<String, ApiError> {
     sqlx::query_scalar::<_, Option<String>>(
         r#"
@@ -957,7 +1173,6 @@ async fn ensure_email_available(state: &AppState, new_email: &str) -> Result<(),
           select 1
           from users
           where lower(email) = lower($1)
-            and status = 'active'
         )
         "#,
     )
@@ -1236,6 +1451,21 @@ fn hotp(secret: &[u8], counter: u64) -> Result<String, ApiError> {
     Ok(format!("{:06}", binary % 1_000_000))
 }
 
+
+
+fn clean_email_proof_token(input: &str) -> Result<String, ApiError> {
+    let token = input.trim();
+    let valid = token.starts_with("adm_email_proof_")
+        && (40..=180).contains(&token.len())
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if valid {
+        Ok(token.to_string())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
 
 fn clean_email_recovery_otp(input: &str) -> Result<String, ApiError> {
     let otp: String = input.chars().filter(|c| !c.is_whitespace()).collect();
