@@ -1,5 +1,5 @@
 use serde_json::json;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::error::ApiError;
@@ -13,6 +13,40 @@ pub struct RecoveryNotification<'a> {
     pub related_artifact_id: Option<Uuid>,
     pub related_reset_request_id: Option<Uuid>,
     pub metadata: serde_json::Value,
+}
+
+pub type AdminNotification<'a> = RecoveryNotification<'a>;
+
+pub async fn enqueue_admin_notification(
+    db: &PgPool,
+    notification: AdminNotification<'_>,
+) -> Result<(), ApiError> {
+    let recipient_email = notification.recipient_email.trim().to_ascii_lowercase();
+    if recipient_email.is_empty() || !recipient_email.contains('@') {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        insert into admin_recovery_notification_outbox (
+          id, user_id, event_type, channel, recipient_email, subject, body, status,
+          related_artifact_id, related_reset_request_id, metadata
+        ) values ($1, $2, $3, 'email', $4, $5, $6, 'pending', $7, $8, $9)
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(notification.user_id)
+    .bind(notification.event_type)
+    .bind(recipient_email)
+    .bind(notification.subject)
+    .bind(notification.body)
+    .bind(notification.related_artifact_id)
+    .bind(notification.related_reset_request_id)
+    .bind(notification.metadata)
+    .execute(db)
+    .await?;
+
+    Ok(())
 }
 
 pub async fn enqueue_recovery_notification_tx(
@@ -55,6 +89,19 @@ pub fn recovery_notification_metadata(
     json!({
         "source": source,
         "mutation_type": mutation_type,
+        "notification_delivery_pending": notification_delivery_pending
+    })
+}
+
+
+pub fn admin_notification_metadata(
+    source: &str,
+    notification_type: &str,
+    notification_delivery_pending: bool,
+) -> serde_json::Value {
+    json!({
+        "source": source,
+        "notification_type": notification_type,
         "notification_delivery_pending": notification_delivery_pending
     })
 }

@@ -300,6 +300,30 @@ async fn request_invite_email_otp(
     .execute(&state.db)
     .await?;
 
+    let otp_body = crate::admin_email_templates::admin_invite_email_otp(&otp, expires_at);
+
+    crate::admin_notification_outbox::enqueue_admin_notification(
+        &state.db,
+        crate::admin_notification_outbox::AdminNotification {
+            user_id: None,
+            event_type: "admin_invite_email_otp_email",
+            recipient_email: &email,
+            subject: "Kode onboarding Karyra Spark Admin Panel",
+            body: &otp_body,
+            related_artifact_id: None,
+            related_reset_request_id: None,
+            metadata: json!({
+                "source": "admin_invite_onboarding",
+                "notification_type": "admin_invite_email_otp",
+                "notification_delivery_pending": true,
+                "invitation_id": invitation.id,
+                "role": invitation.role,
+                "expires_at": expires_at
+            }),
+        },
+    )
+    .await?;
+
     let return_token = return_bootstrap_tokens();
     Ok(success(InviteEmailOtpData {
         email,

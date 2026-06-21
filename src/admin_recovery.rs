@@ -390,7 +390,7 @@ async fn execute_password_recovery(
             event_type: "admin_password_recovery_completed_notice",
             recipient_email: &target.email,
             subject: "Karyra Spark admin password recovery completed",
-            body: "Your Karyra Spark admin password was recovered. If this was not you, contact the superadmin immediately.",
+            body: crate::admin_email_templates::password_recovery_completed_email(),
             related_artifact_id: Some(artifact.artifact_id),
             related_reset_request_id: Some(artifact.reset_request_id),
             metadata: crate::admin_notification_outbox::recovery_notification_metadata(
@@ -670,7 +670,7 @@ async fn confirm_totp_recovery(
             event_type: "admin_totp_recovery_completed_notice",
             recipient_email: &target.email,
             subject: "Karyra Spark admin 2FA recovery completed",
-            body: "Your Karyra Spark admin authenticator was rotated through recovery. If this was not you, contact the superadmin immediately.",
+            body: crate::admin_email_templates::totp_recovery_completed_email(),
             related_artifact_id: Some(artifact.artifact_id),
             related_reset_request_id: Some(artifact.reset_request_id),
             metadata: crate::admin_notification_outbox::recovery_notification_metadata(
@@ -1076,7 +1076,7 @@ async fn complete_email_recovery(
             event_type: "admin_email_recovery_old_email_notice",
             recipient_email: &artifact.email,
             subject: "Karyra Spark admin email recovery completed",
-            body: "Your Karyra Spark admin email was changed through recovery. If this was not you, contact the superadmin immediately.",
+            body: crate::admin_email_templates::email_recovery_old_address_notice(),
             related_artifact_id: Some(artifact.artifact_id),
             related_reset_request_id: Some(artifact.reset_request_id),
             metadata: crate::admin_notification_outbox::recovery_notification_metadata(
@@ -1095,7 +1095,7 @@ async fn complete_email_recovery(
             event_type: "admin_email_recovery_new_email_notice",
             recipient_email: &new_email,
             subject: "Karyra Spark admin email recovery completed",
-            body: "This email is now attached to a recovered Karyra Spark admin account. If this was not you, contact the superadmin immediately.",
+            body: crate::admin_email_templates::email_recovery_new_address_notice(),
             related_artifact_id: Some(artifact.artifact_id),
             related_reset_request_id: Some(artifact.reset_request_id),
             metadata: crate::admin_notification_outbox::recovery_notification_metadata(

@@ -537,6 +537,36 @@ async fn create_invitation(
     )
     .await?;
 
+    let onboarding_url = format!(
+        "{}/admin/onboarding?token={}",
+        state.config.web_origin.trim_end_matches('/'),
+        token
+    );
+    let invite_body = crate::admin_email_templates::admin_invitation_email(&role, &onboarding_url, expires_at);
+
+    crate::admin_notification_outbox::enqueue_admin_notification(
+        &state.db,
+        crate::admin_notification_outbox::AdminNotification {
+            user_id: None,
+            event_type: "admin_invitation_created_email",
+            recipient_email: &email,
+            subject: "Undangan Karyra Spark Admin Panel",
+            body: &invite_body,
+            related_artifact_id: None,
+            related_reset_request_id: None,
+            metadata: json!({
+                "source": "admin_team_invitation",
+                "notification_type": "admin_invitation",
+                "notification_delivery_pending": true,
+                "invitation_id": invitation_id,
+                "role": role,
+                "expires_at": expires_at,
+                "onboarding_url_included": true
+            }),
+        },
+    )
+    .await?;
+
     let mut invitation = fetch_invitation_for_actor(&state, invitation_id, &actor).await?;
     invitation.capabilities =
         admin_auth::sanitize_capabilities_for_role(&invitation.role, &invitation.capabilities);

@@ -3,6 +3,7 @@ mod admin_ai;
 mod admin_audit;
 mod admin_auth;
 mod admin_cms;
+mod admin_email_templates;
 mod admin_login;
 mod admin_mailer;
 mod admin_onboarding;
